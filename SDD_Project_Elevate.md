@@ -61,8 +61,8 @@ graph TD
         Config -->|mode = okf| OKFTool["agent/tools/okf_tool.py"]
         Config -->|mode = rag| RAGTool["agent/tools/rag_tool.py"]
         
-        OKFTool -->|list_concepts() / read_concept()| LocalOKF["Local OKF Markdown Bundle (knowledge/)"]
-        RAGTool -->|search_policy_docs()| VertexSearch["Google Vertex AI Search (hr-policies-lab-engine)"]
+        OKFTool -->|list_concepts / read_concept| LocalOKF["Local OKF Markdown Bundle (knowledge/)"]
+        RAGTool -->|search_policy_docs| VertexSearch["Google Vertex AI Search (hr-policies-lab-engine)"]
     end
     
     LocalOKF -->|Retrieved Policy Text| LlmAgent
