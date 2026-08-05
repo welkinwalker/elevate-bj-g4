@@ -16,7 +16,8 @@
 | Version | Date | Author | Description of Change |
 | :---- | :---- | :---- | :---- |
 | 0.1 | 2026-08-05 | Solution Architecture Team | Initial outline setup |
-| 1.0 | 2026-08-05 | Solution Architecture Team | Complete MVP 1 design incorporating FastMCP integration specs from `openapi.json` |
+| 1.0 | 2026-08-05 | Solution Architecture Team | Complete MVP 1 design incorporating FastMCP integration specs from `enterprise_services_openapi.json` |
+| 1.1 | 2026-08-05 | Solution Architecture Team | Incorporated confirmed architectural selections: Google Cloud Model Armor, Vertex AI Search RAG, and Agent Platform Agent Runtime Session Service |
 
 ---
 
@@ -29,50 +30,52 @@ The **HR Agentic Solution (MVP 1)** introduces a secure, AI-driven virtual assis
 * **Deflect Tier 1 HR/IT Inquiries:** Achieve a $\ge 40\%$ reduction in routine ticket volume within 6 months.
 * **Enable Conversational Transactions:** Execute core self-service actions (leave submission, contact updates, ticket tracking) conversationally.
 * **Demonstrate Cross-System Orchestration:** Multi-step intent resolution chaining Policy RAG, WorkWeek HCM, and ServiceImmediately ITSM.
-* **Enforce Zero-Trust AI Security:** Guarantee 100% auditability, bounded tool execution via MCP, prompt injection interception, and zero policy/data leakage.
+* **Enforce Zero-Trust AI Security:** Guarantee 100% auditability, bounded tool execution via MCP, prompt injection interception, and zero policy/data leakage using Google Cloud Model Armor.
 
 ## **1.2. Scope Boundaries**
 
 | Feature / Domain | In-Scope (MVP 1) | Out-of-Scope (MVP 1) |
 | :--- | :--- | :--- |
 | **User Interface** | Web-based Chat Interface / Enterprise Chat Integration | Voice UI, native mobile apps |
-| **Knowledge Base** | Static HR Policy Docs (Leave, Expense, Remote Work, Code of Conduct) | Dynamic intranet pages, uncategorized docs |
+| **Knowledge Base** | **Vertex AI Search / Agent Builder**: Static HR Policy Docs (Leave, Expense, Remote Work, Code of Conduct) | Dynamic intranet pages, uncategorized docs |
 | **HCM Integration** | **WorkWeek via FastMCP**: Profile metadata, PTO balance check, Leave booking/cancellation, Address/Phone update | Payroll processing, performance reviews, compensation data |
 | **ITSM Integration** | **ServiceImmediately via FastMCP**: Ticket status/details query, Incident ticket creation, Comment timeline, Status lifecycle updates | Change management, asset management, IT provisioning |
 | **Orchestration** | Multi-system workflows (UC-2.1 Equipment, UC-2.2 Medical Leave, UC-2.3 Relocation) | Third-party ERPs, CRM integrations |
-| **Security & Auth** | Custom `X-MCP-Token` header authentication, tenant isolation by Employee ID, regex/model safety guardrails | Full Enterprise SSO / Okta SAML (future state) |
+| **Security & Auth** | **Google Cloud Model Armor** for prompt injection & PII masking; Service PAT in `X-MCP-Token` header | Full Enterprise SSO / Okta SAML (future state) |
+| **Session Memory** | **Agent Platform Agent Runtime Session Service** for multi-turn state management | External custom session databases |
 
 ## **1.3. Target Architecture Overview**
 
-The solution leverages Google ADK (Agent Development Kit) with Streamable HTTP FastMCP toolsets (`McpToolset`), wrapped in an Input/Output Safety Interceptor pipeline.
+The solution leverages Google ADK (Agent Development Kit) running on Google Cloud Agent Platform Agent Runtime, backed by Agent Runtime Session Service and Streamable HTTP FastMCP toolsets (`McpToolset`), protected by Google Cloud Model Armor.
 
 ```mermaid
 graph TD
     User(["Employee / User UI"]) -->|Web Chat Request| UI["Conversational Chat Frontend"]
-    UI -->|HTTP Request| Interceptor["Safety & Governance Interceptor"]
+    UI -->|HTTP Request| ModelArmor["Google Cloud Model Armor"]
     
     subgraph Governance["Governance & Safety Layer"]
-        Interceptor -->|1. Input Guard| PromptGuard["Prompt Injection & Safety Filter"]
-        Interceptor -->|2. Masking| PIIRedactor["PII & SPII Masker"]
+        ModelArmor -->|1. Prompt Sanitization| PromptGuard["Prompt Injection & Jailbreak Defense"]
+        ModelArmor -->|2. Data Masking| PIIRedactor["PII & SPII Redaction"]
     end
 
-    PromptGuard -->|Validated User Prompt| Orchestrator["Google ADK Agent Orchestrator"]
+    PromptGuard -->|Sanitized User Prompt| Runtime["Agent Platform Agent Runtime"]
 
-    subgraph Orchestration["Agentic Orchestration Layer"]
-        Orchestrator -->|Intent Classification| Supervisor["Supervisor Agent"]
-        Supervisor -->|Policy Query| PolicyAgent["Policy RAG Tool / Vector Store"]
+    subgraph Agentic Orchestration Layer
+        Runtime -->|Session Management| SessionStore[("Agent Runtime Session Service")]
+        Runtime -->|Intent Classification| Supervisor["Supervisor Agent"]
+        Supervisor -->|Policy Query| PolicyAgent["Vertex AI Search RAG Tool"]
         Supervisor -->|WorkWeek MCP| WorkWeekMCP["WorkWeek FastMCP Server"]
         Supervisor -->|ServiceImmediately MCP| ServiceMCP["ServiceImmediately FastMCP Server"]
     end
 
-    subgraph Backend["Enterprise Backend Services (openapi.json)"]
-        PolicyAgent -->|Semantic Search| PolicyKB[("Static HR Policies Index")]
+    subgraph Backend["Enterprise Backend Services (enterprise_services_openapi.json)"]
+        PolicyAgent -->|Semantic Search| PolicyKB[("Vertex AI Agent Builder Policy Index")]
         WorkWeekMCP -->|Streamable HTTP /work-week/mcp/| WWBackend[("WorkWeek HCM System")]
         ServiceMCP -->|Streamable HTTP /service-immediately/mcp/| SIMBackend[("ServiceImmediately ITSM System")]
     end
 
-    Orchestrator -->|Raw Output| OutputGuard["Output Validator & Toxicity Check"]
-    OutputGuard -->|Validated Response + Citations| UI
+    Runtime -->|Raw Model Response| OutputArmor["Model Armor Output Guard"]
+    OutputArmor -->|Toxicity Check & Citation Links| UI
 ```
 
 ## **1.4. Alternatives Considered**
@@ -80,8 +83,9 @@ graph TD
 | Architectural Pattern | Evaluated Alternative | Selected Choice & Rationale |
 | :--- | :--- | :--- |
 | **Backend Integration** | Direct REST Endpoint Calling | **Streamable HTTP MCP Servers (`FastMCP`)**: Provides standardized tool discovery, strict type schema enforcement, stateless transport, and built-in ADK compatibility via `McpToolset`. |
-| **Agent Framework** | Monolithic Prompt / LangChain | **Google ADK Agentic Framework**: Native support for `StreamableHTTPConnectionParams`, robust state management, and enterprise-grade telemetry. |
-| **Safety Interceptor** | In-Prompt Guardrails | **Standalone Interceptor Pipeline**: In-prompt rules are vulnerable to jailbreaking. Separate input/output scanning guarantees deterministic interception without polluting agent context. |
+| **Safety Interceptor** | Custom Regex / In-Prompt Rules | **Google Cloud Model Armor**: Enterprise-grade defense against prompt injection, jailbreaking, PII leakage, and toxic outputs within the $< 300\text{ms}$ SLA budget (`NFR-2.1`). |
+| **Knowledge Base (RAG)** | Custom Vector DB (FAISS/Chroma) | **Vertex AI Search / Agent Builder**: Fully managed document ingestion from Cloud Storage, semantic chunking, and automatic deep-link citation generation (`FR-5.1` - `FR-5.4`). |
+| **Session Memory** | Redis / Firestore with TTL | **Agent Platform Agent Runtime Session Service**: Native session persistence and dialog turn management within Google Cloud's Agent Platform ecosystem (`FR-2.2`). |
 
 ---
 
@@ -90,7 +94,7 @@ graph TD
 The production target architecture expands MVP 1 into a highly scalable, enterprise-grade deployment:
 1. **Identity & Auth Federation**: Transition from `X-MCP-Token` header authentication to Enterprise SSO (Okta / Entra ID) via Google Cloud Identity-Aware Proxy (IAP), automatically injecting `x-goog-authenticated-user-email` headers.
 2. **Multi-Tenancy & Fleet Management**: Scale MCP server instances using Google Cloud Run with auto-scaling (0-100 instances), registered in Agent Registry for enterprise fleet management.
-3. **Dynamic Knowledge Base Sync**: Replace static policy document indexing with an automated Event-Driven Document Sync pipeline (Cloud Storage trigger $\rightarrow$ Document AI $\rightarrow$ Vertex AI Vector Search) achieving sub-15 minute sync SLAs.
+3. **Dynamic Knowledge Base Sync**: Automated Cloud Storage event triggers triggering Document AI and Vertex AI Search indexing for sub-15 minute document sync SLAs (`FR-5.5`).
 4. **Asynchronous Streaming**: Implement Server-Sent Events (SSE) / WebSockets for real-time response streaming to reduce perceived latency below $1.5\text{s}$.
 
 ---
@@ -98,8 +102,8 @@ The production target architecture expands MVP 1 into a highly scalable, enterpr
 # **3. System Flows, Sequence Diagrams & Agent Design**
 
 ## **3.1. Agent Design**
-The core system uses a **Supervisor Agent** orchestrating three specialized tool sets:
-* **Policy RAG Tool**: Performs hybrid dense-sparse vector search against HR policies, returning grounded answers with metadata citations.
+The core system uses a **Supervisor Agent** running on Agent Runtime, orchestrating three specialized tool sets:
+* **Vertex AI Search Policy Tool**: Performs semantic vector search against policy documents in Cloud Storage, returning grounded answers with deep-link citations.
 * **WorkWeek MCP Toolset** (`/work-week/mcp/`): Exposes `get_current_employee_id`, `get_employee_balances`, `request_time_off`, `update_personal_info`, `get_personal_info`, and `cancel_leave_request`.
 * **ServiceImmediately MCP Toolset** (`/service-immediately/mcp/`): Exposes `list_tickets`, `create_ticket`, `add_ticket_comment`, and `update_ticket_status`.
 
@@ -113,18 +117,18 @@ sequenceDiagram
     autonumber
     actor Employee
     participant UI as Chat UI
-    participant Guard as Safety Guardrail
-    participant Agent as ADK Agent
-    participant RAG as Policy Vector Store
+    participant Armor as Google Cloud Model Armor
+    participant Agent as ADK Agent / Runtime
+    participant RAG as Vertex AI Search
 
     Employee->>UI: "What is the company's bereavement leave policy?"
-    UI->>Guard: Validate Input (Prompt Injection Check)
-    Guard-->>UI: Input Approved
+    UI->>Armor: Inspect Input (Prompt Injection Check)
+    Armor-->>UI: Sanitized Input
     UI->>Agent: Process Query
     Agent->>RAG: Hybrid Search ("bereavement leave policy")
     RAG-->>Agent: Relevant Excerpts + Document Metadata
-    Agent->>Guard: Validate Output (Grounding & Citation Check)
-    Guard-->>Agent: Output Approved
+    Agent->>Armor: Validate Output (Grounding & Citation Check)
+    Armor-->>Agent: Approved Output
     Agent-->>UI: Grounded Answer + Clickable Citation Link
     UI-->>Employee: Display Answer with Deep Link
 ```
@@ -134,7 +138,7 @@ sequenceDiagram
 sequenceDiagram
     autonumber
     actor Employee
-    participant Agent as ADK Agent
+    participant Agent as ADK Agent / Runtime
     participant WW as "WorkWeek FastMCP (/work-week/mcp/)"
     participant WW_DB as WorkWeek HCM Database
 
@@ -158,8 +162,8 @@ sequenceDiagram
 sequenceDiagram
     autonumber
     actor Employee
-    participant Agent as ADK Agent
-    participant RAG as Policy Vector Store
+    participant Agent as ADK Agent / Runtime
+    participant RAG as Vertex AI Search
     participant WW as WorkWeek FastMCP
     participant SI as ServiceImmediately FastMCP
 
@@ -184,7 +188,7 @@ In production, backend services bypass IAP and require a custom **Personal Acces
 X-MCP-Token: mcp_your_token_here
 ```
 
-ADK agents configure connection parameters statelessly using custom HTTP headers:
+ADK agents configure connection parameters statelessly using custom HTTP headers with environment-scoped Service PATs, while passing user `employee_id` context into tool invocations for tenant isolation:
 ```python
 from google.adk.agents import Agent
 from google.adk.tools.mcp_tool import McpToolset
@@ -213,18 +217,18 @@ serviceimmediately_mcp = McpToolset(
 
 ```mermaid
 graph LR
-    UserPrompt[User Prompt] --> InputGuard{Input Safety Guard}
-    InputGuard -->|Jailbreak / Injection| BlockInput[Block & Log]
-    InputGuard -->|Passed| AgentExec[Agent Execution & MCP Tool Calls]
-    AgentExec --> OutputGuard{Output Safety Guard}
-    OutputGuard -->|Toxicity / Hallucination| BlockOutput[Redact & Fallback]
-    OutputGuard -->|PII Detected| MaskPII[Redact SPII]
+    UserPrompt[User Prompt] --> ModelArmor{Google Cloud Model Armor}
+    ModelArmor -->|Jailbreak / Injection| BlockInput[Block & Log Audit Event]
+    ModelArmor -->|Passed| AgentExec[Agent Runtime Execution & MCP Tool Calls]
+    AgentExec --> OutputArmor{Model Armor Output Guard}
+    OutputArmor -->|Toxicity / Hallucination| BlockOutput[Redact & Fallback]
+    OutputArmor -->|PII Detected| MaskPII[Redact SPII]
     MaskPII --> FinalResponse[User Response]
 ```
 
-1. **Input Validation (`FR-1.3`)**: Regex and classifier models intercept jailbreaks, system prompt overrides, and off-topic queries.
+1. **Google Cloud Model Armor Protection (`FR-1.3`)**: Intercepts prompt injection, jailbreak attempts, and off-topic interactions before reaching agent models.
 2. **Output Validation (`FR-1.3`)**: Validates model output against grounded retrieved context to guarantee 0% hallucinated policies.
-3. **Data Masking (`FR-1.4`)**: Redacts SSNs, phone numbers, and addresses from application log files using Named Entity Recognition (NER) and regex.
+3. **Data Masking (`FR-1.4`)**: Model Armor redacts SSNs, phone numbers, and addresses from log files and history.
 4. **Audit Logging (`FR-1.2`, `NFR-1.2`)**: Logs all tool calls with `automation_source: "Agentic_HR_Assistant"`, caller ID, execution status, and timestamp.
 
 ---
@@ -262,7 +266,7 @@ graph LR
 | **Transient Network Timeout / 5xx** | Backend service glitch | Automatic exponential backoff retry (up to 3 attempts). If persistent: *"WorkWeek is temporarily unavailable. Please try again shortly."* |
 | **Insufficient PTO Balance** | Business rule violation | Agent intercepts error: *"Request declined: You requested 5 days, but only have 2 days remaining."* |
 | **Invalid Ticket State Transition** | State machine violation | Agent catches state rule: *"Ticket INC-123 is Closed and cannot be updated."* |
-| **Partial Cross-System Failure** | Step 1 succeeds, Step 2 fails | Saga transaction log records failure. User notified: *"Leave request submitted in WorkWeek, but ticket creation in ServiceImmediately failed. Reference ID: LOG-8812."* |
+| **Partial Cross-System Failure** | Step 1 succeeds, Step 2 fails | Log failure with tracking reference ID (`NFR-4.3`). User notified: *"Leave request submitted in WorkWeek, but ticket creation in ServiceImmediately failed. Reference ID: LOG-8812. Please contact IT support."* |
 
 ---
 
@@ -271,9 +275,9 @@ graph LR
 | Variable | Cost Driver | Optimization Strategy |
 | :--- | :--- | :--- |
 | **Model Inference** | Gemini 3.5 / 3.6 Flash input/output token usage | Prompt caching for policy system prompts; concise system instructions. |
-| **Vector Storage** | Embedding storage and search queries | Chunk size optimization (500 tokens with 50 token overlap); hybrid vector index. |
+| **Vector Search** | Vertex AI Search document indexing | Chunk size optimization; hybrid search index. |
 | **MCP Compute** | Cloud Run CPU/Memory per HTTP request | Scale-to-zero Cloud Run instances during off-peak hours. |
-| **Safety Interceptor** | Dual-pass guardrail evaluation | Lightweight regex filters before executing heavy model-based classifiers. |
+| **Safety Interceptor** | Google Cloud Model Armor API calls | Single-pass evaluation pipeline per conversation turn. |
 
 ---
 
@@ -287,8 +291,8 @@ gantt
     Environment Setup & Terraform        :2026-08-06, 5d
     MCP Toolset Integration & Testing    :2026-08-09, 7d
     section Phase 2: Agent Development
-    Supervisor Agent & RAG Pipeline       :2026-08-16, 8d
-    Safety Interceptor & PII Redaction   :2026-08-20, 6d
+    Supervisor Agent & Vertex RAG        :2026-08-16, 8d
+    Google Cloud Model Armor Integration  :2026-08-20, 6d
     section Phase 3: Validation
     Cross-System Flow Integration Tests   :2026-08-24, 6d
     UAT Benchmark & Security Scan         :2026-08-28, 5d
@@ -315,16 +319,18 @@ gantt
 | :--- | :--- | :--- |
 | **Policy Q&A Accuracy** | $\ge 95\%$ accuracy; 0% policy hallucination | Run 100-question ground-truth evaluation set via LLM-as-judge. |
 | **Transaction Integrity** | $100\%$ transaction correctness | Automated test suite verifying WorkWeek & ServiceImmediately DB state changes. |
-| **Prompt Injection Defense** | $100\%$ detection of jailbreak test cases | Execute OWASP LLM Top 10 benchmark injection attacks. |
+| **Prompt Injection Defense** | $100\%$ detection of jailbreak test cases | Execute OWASP LLM Top 10 benchmark injection attacks via Model Armor. |
 | **Response Latency** | $< 10.0\text{s}$ average response time; safety overhead $< 300\text{ms}$ | Latency tracing via Cloud Trace telemetry. |
 | **Audit Log Coverage** | $100\%$ coverage of actions with origin metadata | Log audit parser verifying `automation_source` fields in BigQuery. |
 
 ---
 
-# **10. Assumptions / Open Questions**
+# **10. Confirmed Design Choices & Decisions**
 
-| # | Assumption / Question | Owner | Status / Target Date |
+| # | Topic / Question | Confirmed Architecture Selection | Status |
 | :- | :--- | :--- | :--- |
-| **A-1** | `X-MCP-Token` credentials will be provisioned per test environment. | Security Team | Approved |
-| **A-2** | Policy document repository updates occur at most once per week in MVP 1. | HR Ops | Approved |
-| **Q-1** | Should failed cross-system steps trigger an automatic rollback (e.g. canceling leave if ticket fails)? | HR / Tech Lead | Open (Currently logging for manual follow-up per `NFR-4.3`) |
+| **D-1** | **Partial Cross-System Failure** | Log partial failure with a tracking reference ID and notify user with manual follow-up instructions (`NFR-4.3`). | Approved |
+| **D-2** | **MCP Token Credentials** | Pre-provisioned Service PAT in `X-MCP-Token` header; user `employee_id` passed in tool context. | Approved |
+| **D-3** | **Safety Interceptor** | **Google Cloud Model Armor** for prompt injection defense, jailbreak prevention, PII masking, and output toxicity filtering (`FR-1.3`, `FR-1.4`). | Approved |
+| **D-4** | **Knowledge Base (RAG)** | **Vertex AI Search / Agent Builder Knowledge Base** with Cloud Storage ingestion, semantic chunking, and deep links (`FR-5.1` - `FR-5.4`). | Approved |
+| **D-5** | **Session Memory State** | **Google Cloud Agent Platform Agent Runtime Session Service** for multi-turn state management (`FR-2.2`). | Approved |
