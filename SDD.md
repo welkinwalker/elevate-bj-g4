@@ -555,13 +555,13 @@ gantt
 
 ```mermaid
 graph LR
-    Commit[Git Push / PR] --> LintScan[1. Static Analysis & Bandit Security Scan]
-    LintScan --> FastMCPTest[2. FastMCP Tool Contract & Unit Tests]
-    FastMCPTest --> InjectTest[3. Model Armor Injection Benchmark (100 vectors)]
-    InjectTest --> DeployDev[4. Deploy to Dev Environment]
-    DeployDev --> StagingGate{5. Staging Gate: 100% Pass}
-    StagingGate -->|Approved| Canary[6. Canary Deployment (10% Traffic)]
-    Canary --> Prod[7. Full Production Deployment]
+    Commit["Git Push / PR"] --> LintScan["1. Static Analysis & Bandit Security Scan"]
+    LintScan --> FastMCPTest["2. FastMCP Tool Contract & Unit Tests"]
+    FastMCPTest --> InjectTest["3. Model Armor Injection Benchmark (100 vectors)"]
+    InjectTest --> DeployDev["4. Deploy to Dev Environment"]
+    DeployDev --> StagingGate{"5. Staging Gate: 100% Pass"}
+    StagingGate -->|Approved| Canary["6. Canary Deployment (10% Traffic)"]
+    Canary --> Prod["7. Full Production Deployment"]
 ```
 
 * **Automated Quality Gates**:
