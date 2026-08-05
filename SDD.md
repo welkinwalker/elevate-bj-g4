@@ -18,6 +18,7 @@
 | 0.1 | 2026-08-05 | Solution Architecture Team | Initial outline setup |
 | 1.0 | 2026-08-05 | Solution Architecture Team | Complete MVP 1 design incorporating FastMCP integration specs from `enterprise_services_openapi.json` |
 | 1.1 | 2026-08-05 | Solution Architecture Team | Incorporated confirmed architectural selections: Google Cloud Model Armor, Vertex AI Search RAG, and Agent Platform Agent Runtime Session Service |
+| 1.2 | 2026-08-05 | Solution Architecture Team | Added complete BRD Requirement Traceability Matrix, all Use Case sequence flows (UC-1.1 through UC-2.3), and zero-caching real-time fetch specifications |
 
 ---
 
@@ -103,13 +104,13 @@ The production target architecture expands MVP 1 into a highly scalable, enterpr
 
 ## **3.1. Agent Design**
 The core system uses a **Supervisor Agent** running on Agent Runtime, orchestrating three specialized tool sets:
-* **Vertex AI Search Policy Tool**: Performs semantic vector search against policy documents in Cloud Storage, returning grounded answers with deep-link citations.
-* **WorkWeek MCP Toolset** (`/work-week/mcp/`): Exposes `get_current_employee_id`, `get_employee_balances`, `request_time_off`, `update_personal_info`, `get_personal_info`, and `cancel_leave_request`.
-* **ServiceImmediately MCP Toolset** (`/service-immediately/mcp/`): Exposes `list_tickets`, `create_ticket`, `add_ticket_comment`, and `update_ticket_status`.
+* **Vertex AI Search Policy Tool**: Performs semantic vector search against policy documents in Cloud Storage, returning grounded answers with deep-link citations (`FR-5.1` - `FR-5.4`).
+* **WorkWeek MCP Toolset** (`/work-week/mcp/`): Exposes `get_current_employee_id`, `get_employee_balances`, `request_time_off`, `update_personal_info`, `get_personal_info`, and `cancel_leave_request` (`FR-3.1` - `FR-3.3`).
+* **ServiceImmediately MCP Toolset** (`/service-immediately/mcp/`): Exposes `list_tickets`, `get_ticket_details`, `create_ticket`, `add_ticket_comment`, and `update_ticket_status` (`FR-4.1` - `FR-4.3`).
 
 ---
 
-## **3.2. Sequence Diagrams**
+## **3.2. Sequence Diagrams for All Use Cases**
 
 ### **UC-1.1: Policy Q&A Flow**
 ```mermaid
@@ -146,15 +147,32 @@ sequenceDiagram
     Agent->>WW: get_current_employee_id()
     WW-->>Agent: employee_id = "EMP-1002"
     Agent->>WW: get_employee_balances("EMP-1002")
-    WW->>WW_DB: Query PTO Balances
+    WW->>WW_DB: Query PTO Balances (Real-time fetch)
     WW_DB-->>WW: Vacation Balance: 40 hrs (5 days)
     WW-->>Agent: Remaining Vacation Days = 5
-    Agent->>Agent: Validate Request (2 days requested <= 5 available, dates valid)
+    Agent->>Agent: Validate Request (2 days requested <= 5 available, start <= end)
     Agent->>WW: request_time_off("EMP-1002", "2026-08-13", "2026-08-14", "Vacation", 2)
     WW->>WW_DB: Deduct 2 days & Create TimeOff Record
     WW_DB-->>WW: Success (Request ID: 501)
     WW-->>Agent: Confirmation Payload
     Agent-->>Employee: "Your 2-day Vacation request (Aug 13-14) is confirmed. Balance remaining: 3 days."
+```
+
+### **UC-1.3: IT Incident Management - Status & Creation**
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Employee
+    participant Agent as ADK Agent / Runtime
+    participant SI as "ServiceImmediately FastMCP (/service-immediately/mcp/)"
+    participant SI_DB as ServiceImmediately ITSM DB
+
+    Employee->>Agent: "Create an IT ticket because my VPN connection keeps dropping."
+    Agent->>SI: create_ticket(requested_by="EMP-1002", category="IT", short_description="VPN connection dropping", priority="3 - Moderate")
+    SI->>SI_DB: Scan 5-min Duplicate Window & Persist Ticket
+    SI_DB-->>SI: Ticket Created (ID: INC123456)
+    SI-->>Agent: {ticket_id: "INC123456", state: "New"}
+    Agent-->>Employee: "Incident ticket INC123456 created under Category 'IT' with Priority Moderate."
 ```
 
 ### **UC-2.1: Cross-System Orchestration - Equipment Procurement**
@@ -178,6 +196,46 @@ sequenceDiagram
     Agent-->>Employee: "Verified remote status. Hardware request INC-98231 created in ServiceImmediately for shipping to 123 Tech Way."
 ```
 
+### **UC-2.2: Cross-System Orchestration - Short-Term Medical Leave**
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Employee
+    participant Agent as ADK Agent / Runtime
+    participant RAG as Vertex AI Search
+    participant WW as WorkWeek FastMCP
+    participant SI as ServiceImmediately FastMCP
+
+    Employee->>Agent: "I need to take short-term medical leave starting next Monday."
+    Agent->>RAG: Query Short-Term Medical Leave Policy
+    RAG-->>Agent: Medical Leave Procedure & Requirements
+    Agent->>WW: request_time_off(employee_id, "2026-08-10", "2026-08-24", "Sick", 10)
+    WW-->>Agent: TimeOff Request Confirmed (ID: 602)
+    Agent->>SI: create_ticket(requested_by, category="HR Access", short_description="Medical Leave Email Out-Of-Office Routing", priority="3 - Moderate")
+    SI-->>Agent: Ticket Created (ID: INC-98240)
+    Agent-->>Employee: "Quoted Medical Leave policy. Leave submitted in WorkWeek (ID 602) and IT access ticket INC-98240 opened."
+```
+
+### **UC-2.3: Cross-System Orchestration - Employee Relocation**
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Employee
+    participant Agent as ADK Agent / Runtime
+    participant RAG as Vertex AI Search
+    participant WW as WorkWeek FastMCP
+    participant SI as ServiceImmediately FastMCP
+
+    Employee->>Agent: "I'm transferring to the London office. Tell me allowance, update record, and sort building access."
+    Agent->>RAG: Query Relocation Policy
+    RAG-->>Agent: Policy Excerpt: Relocation allowance limits and badge requirements
+    Agent->>WW: update_personal_info(employee_id, address="10 Downing St, London", phone="+442079460912")
+    WW-->>Agent: Contact Details Updated
+    Agent->>SI: create_ticket(requested_by, category="Facilities", short_description="London Office Building Access Badge", priority="3 - Moderate")
+    SI-->>Agent: Ticket Created (ID: INC-98255)
+    Agent-->>Employee: "Relocation allowance quoted ($5,000 max). Address updated in WorkWeek and building badge ticket INC-98255 created."
+```
+
 ---
 
 # **4. Security, Governance & Identity**
@@ -188,7 +246,7 @@ In production, backend services bypass IAP and require a custom **Personal Acces
 X-MCP-Token: mcp_your_token_here
 ```
 
-ADK agents configure connection parameters statelessly using custom HTTP headers with environment-scoped Service PATs, while passing user `employee_id` context into tool invocations for tenant isolation:
+ADK agents configure connection parameters statelessly using custom HTTP headers with environment-scoped Service PATs, while passing user `employee_id` context into tool invocations for tenant isolation (`FR-3.1`):
 ```python
 from google.adk.agents import Agent
 from google.adk.tools.mcp_tool import McpToolset
@@ -209,9 +267,9 @@ serviceimmediately_mcp = McpToolset(
 )
 ```
 
-## **4.2. Tenant Isolation Rules**
-* **Identity Context Verification**: Every FastMCP resource query (`workweek://employees/{employee_id}/profile`) and tool call (`get_employee_balances`) verifies caller identity against the authenticated session context.
-* **Cross-User Data Block**: Users attempting to pass another user's `employee_id` will receive an immediate `403 Forbidden` / access denied error.
+## **4.2. Tenant Isolation & Real-Time Data Fetch Rules**
+* **Identity Context Verification (`FR-1.5`)**: Every FastMCP resource query (`workweek://employees/{employee_id}/profile`) and tool call (`get_employee_balances`) verifies caller identity against the authenticated session context. Cross-user access returns `403 Forbidden`.
+* **Zero Dynamic Caching (`FR-3.4`)**: The AI orchestration layer fetches Employee Profile metadata and PTO balances directly from WorkWeek on **every query**. No dynamic, user-specific profile data is cached in the agent memory layer.
 
 ## **4.3. Safety Interceptor Pipeline & Guardrails**
 
@@ -227,9 +285,9 @@ graph LR
 ```
 
 1. **Google Cloud Model Armor Protection (`FR-1.3`)**: Intercepts prompt injection, jailbreak attempts, and off-topic interactions before reaching agent models.
-2. **Output Validation (`FR-1.3`)**: Validates model output against grounded retrieved context to guarantee 0% hallucinated policies.
+2. **Output Validation (`FR-1.3`, `FR-5.4`)**: Validates model output against grounded retrieved context to guarantee 0% hallucinated policies.
 3. **Data Masking (`FR-1.4`)**: Model Armor redacts SSNs, phone numbers, and addresses from log files and history.
-4. **Audit Logging (`FR-1.2`, `NFR-1.2`)**: Logs all tool calls with `automation_source: "Agentic_HR_Assistant"`, caller ID, execution status, and timestamp.
+4. **Audit Logging (`FR-1.2`, `NFR-1.2`, `FR-4.1`)**: Logs all tool calls with `automation_source: "Agentic_HR_Assistant"`, caller ID, execution status, and timestamp.
 
 ---
 
@@ -242,20 +300,21 @@ graph LR
 | Tool Name | Parameters | Description & Validation Rules |
 | :--- | :--- | :--- |
 | `get_current_employee_id()` | None | Resolves the authenticated user's `employee_id`. |
-| `get_employee_balances` | `employee_id: str` | Returns accrued, used, and remaining Vacation/Sick leave balances. |
-| `request_time_off` | `employee_id: str`, `start_date: str`, `end_date: str`, `leave_type: str`, `days: float` | Books time off. Dates must be `YYYY-MM-DD`. Validates $start \le end$, start $\ge$ today, and $days \le remaining\_balance$. |
-| `update_personal_info` | `employee_id: str`, `address: str`, `phone: str` | Updates home address ($\ge 5$ chars) and phone number (regex `^\+?[\d\s\-()]{7,20}$`). |
-| `get_personal_info` | `employee_id: str` | Retrieves personal address and phone details. |
+| `get_employee_balances` | `employee_id: str` | Returns accrued, used, and remaining Vacation/Sick leave balances (`FR-3.2`). Real-time fetch (`FR-3.4`). |
+| `request_time_off` | `employee_id: str`, `start_date: str`, `end_date: str`, `leave_type: str`, `days: float` | Books time off. Dates must be `YYYY-MM-DD`. Validates $start \le end$, start $\ge$ today, and $days \le remaining\_balance$ (`FR-3.3`). |
+| `update_personal_info` | `employee_id: str`, `address: str`, `phone: str` | Updates home address ($\ge 5$ chars) and phone number (regex `^\+?[\d\s\-()]{7,20}$`) (`FR-3.2`, `FR-3.3`). |
+| `get_personal_info` | `employee_id: str` | Retrieves personal address and phone details (`FR-3.2`). |
 | `cancel_leave_request` | `employee_id: str`, `request_id: int` | Cancels a pending/approved request and refunds remaining leave days. |
 
 ### **2. ServiceImmediately FastMCP Server (`/service-immediately/mcp/`)**
 
 | Tool Name | Parameters | Description & Validation Rules |
 | :--- | :--- | :--- |
-| `list_tickets` | `employee_id: str` | Retrieves all incident tickets requested by the employee. |
-| `create_ticket` | `requested_by: str`, `category: str`, `short_description: str`, `priority: str`, `assignment_group: str` | Creates incident. Rejects duplicate submissions within 5 mins. Priority `'1 - Critical'` requires outage/downtime keywords. |
-| `add_ticket_comment` | `ticket_id: str`, `author: str`, `comment: str` | Appends comment to ticket activity log timeline. |
-| `update_ticket_status` | `ticket_id: str`, `status: str`, `resolution_notes: str`, `updated_by: str` | Enforces state machine: `New -> In Progress/Closed`, `In Progress -> Resolved/Closed`, `Resolved -> In Progress/Closed`. Closed tickets are immutable. |
+| `list_tickets` | `employee_id: str` | Retrieves all incident tickets requested by the employee (`FR-4.2`). |
+| `get_ticket_details` | `ticket_id: str` | Fetches status, category, short desc, priority, assignee, and complete comment timeline (`FR-4.2`). |
+| `create_ticket` | `requested_by: str`, `category: str`, `short_description: str`, `priority: str`, `assignment_group: str` | Creates incident. Rejects duplicate submissions within 5 mins (`FR-4.3`). Priority `'1 - Critical'` requires outage/downtime keywords (`FR-4.3`). |
+| `add_ticket_comment` | `ticket_id: str`, `author: str`, `comment: str` | Appends comment to ticket activity log timeline (`FR-4.2`). |
+| `update_ticket_status` | `ticket_id: str`, `status: str`, `resolution_notes: str`, `updated_by: str` | Enforces state machine: `New -> In Progress/Closed`, `In Progress -> Resolved/Closed`, `Resolved -> In Progress/Closed`. Closed tickets are immutable (`FR-4.3`). |
 
 ---
 
@@ -263,9 +322,9 @@ graph LR
 
 | Failure Scenario | Root Cause | Fallback Behavior & User Message |
 | :--- | :--- | :--- |
-| **Transient Network Timeout / 5xx** | Backend service glitch | Automatic exponential backoff retry (up to 3 attempts). If persistent: *"WorkWeek is temporarily unavailable. Please try again shortly."* |
-| **Insufficient PTO Balance** | Business rule violation | Agent intercepts error: *"Request declined: You requested 5 days, but only have 2 days remaining."* |
-| **Invalid Ticket State Transition** | State machine violation | Agent catches state rule: *"Ticket INC-123 is Closed and cannot be updated."* |
+| **Transient Network Timeout / 5xx** | Backend service glitch | Automatic exponential backoff retry up to 3 attempts (`NFR-4.2`). If persistent: *"WorkWeek is temporarily unavailable. Please try again shortly."* (`NFR-4.1`) |
+| **Insufficient PTO Balance** | Business rule violation | Agent intercepts error: *"Request declined: You requested 5 days, but only have 2 days remaining."* (`FR-3.3`) |
+| **Invalid Ticket State Transition** | State machine violation | Agent catches state rule: *"Ticket INC-123 is Closed and cannot be updated."* (`FR-4.3`) |
 | **Partial Cross-System Failure** | Step 1 succeeds, Step 2 fails | Log failure with tracking reference ID (`NFR-4.3`). User notified: *"Leave request submitted in WorkWeek, but ticket creation in ServiceImmediately failed. Reference ID: LOG-8812. Please contact IT support."* |
 
 ---
@@ -307,21 +366,65 @@ gantt
 | Category | Risk / Constraint | Mitigation Strategy |
 | :--- | :--- | :--- |
 | **Constraint** | FastMCP headers require `X-MCP-Token` due to GFE proxy rules. | Pre-configure `StreamableHTTPConnectionParams` with exact header specs in ADK config. |
-| **Risk** | Duplicate ticket submission during network retries. | FastMCP server enforces 5-minute deduplication window on identical short descriptions. |
-| **Risk** | Latency breach ($>10\text{s}$) due to sequential tool calls. | Execute independent tool calls asynchronously using Python `asyncio.gather`. |
-| **Assumption** | Policy documents remain static during MVP 1. | Knowledge base manual re-index script provided for scheduled updates (`FR-5.5`). |
+| **Risk** | Duplicate ticket submission during network retries. | FastMCP server enforces 5-minute deduplication window on identical short descriptions (`FR-4.3`). |
+| **Risk** | Latency breach ($>10\text{s}$) due to sequential tool calls. | Execute independent tool calls asynchronously using Python `asyncio.gather` (`NFR-2.3`). |
+| **SLA Target** | Policy Document Sync Latency (`FR-5.5`). | Automated Cloud Storage triggers sync policy updates into Vertex AI Search within 15 minutes (`FR-5.5`). |
 
 ---
 
-# **9. Quality Evaluation & UAT Framework**
+# **9. Quality Evaluation & BRD Requirement Traceability Matrix**
+
+## **9.1. Quality Evaluation Framework**
 
 | Evaluation Category | Target Metric / Benchmark | Verification Method |
 | :--- | :--- | :--- |
-| **Policy Q&A Accuracy** | $\ge 95\%$ accuracy; 0% policy hallucination | Run 100-question ground-truth evaluation set via LLM-as-judge. |
+| **Policy Q&A Accuracy** | $\ge 95\%$ accuracy; 0% policy hallucinated | Run 100-question ground-truth evaluation set via LLM-as-judge (`NFR-3.1`). |
 | **Transaction Integrity** | $100\%$ transaction correctness | Automated test suite verifying WorkWeek & ServiceImmediately DB state changes. |
-| **Prompt Injection Defense** | $100\%$ detection of jailbreak test cases | Execute OWASP LLM Top 10 benchmark injection attacks via Model Armor. |
-| **Response Latency** | $< 10.0\text{s}$ average response time; safety overhead $< 300\text{ms}$ | Latency tracing via Cloud Trace telemetry. |
-| **Audit Log Coverage** | $100\%$ coverage of actions with origin metadata | Log audit parser verifying `automation_source` fields in BigQuery. |
+| **Prompt Injection Defense** | $100\%$ detection of jailbreak test cases | Execute OWASP LLM Top 10 benchmark injection attacks via Model Armor (`FR-1.3`). |
+| **Response Latency** | $< 10.0\text{s}$ average response time; safety overhead $< 300\text{ms}$ | Latency tracing via Cloud Trace telemetry (`NFR-2.1`). |
+| **Audit Log Coverage** | $100\%$ coverage of actions with origin metadata | Log audit parser verifying `automation_source` fields in BigQuery (`FR-1.2`, `NFR-1.2`). |
+
+---
+
+## **9.2. Complete BRD Requirement Traceability Matrix**
+
+| BRD Requirement ID | BRD Requirement Name | SDD Section & Component Mapping | Compliance Status |
+| :--- | :--- | :--- | :--- |
+| **FR-1.1** | Capability & Lifecycle Governance | Section 1.2, 5.1 (FastMCP Tool boundaries) | Fully Addressed |
+| **FR-1.2** | Verification of Request Origin | Section 4.3, 5.1 (`automation_source` logging) | Fully Addressed |
+| **FR-1.3** | Verification of Conversation Safety | Section 1.3, 4.3 (Google Cloud Model Armor) | Fully Addressed |
+| **FR-1.4** | Data Masking / Redaction | Section 4.3 (Model Armor SPII Redaction) | Fully Addressed |
+| **FR-1.5** | RBAC and Data Isolation | Section 4.2 (Employee ID Context Tenant Isolation) | Fully Addressed |
+| **FR-2.1** | Natural Language Understanding | Section 3.1 (Supervisor Agent Intent Classifier) | Fully Addressed |
+| **FR-2.2** | Multi-Turn Dialog | Section 1.3, 1.4 (Agent Runtime Session Service) | Fully Addressed |
+| **FR-3.1** | Delegated Authorization | Section 4.1 (`X-MCP-Token` + `employee_id`) | Fully Addressed |
+| **FR-3.2** | WorkWeek Core Actions | Section 5.1 (WorkWeek FastMCP Tool Specs) | Fully Addressed |
+| **FR-3.3** | WorkWeek Operation Guardrails | Section 5.1 (Balance, Date & Syntax Validation) | Fully Addressed |
+| **FR-3.4** | Real-time Data Fetch | Section 4.2, 5.1 (Zero Dynamic Profile Caching) | Fully Addressed |
+| **FR-4.1** | Auditable Ticket Creation | Section 4.3, 5.1 (`automation_source` Audit Logs) | Fully Addressed |
+| **FR-4.2** | ServiceImmediately Ticket Mgmt | Section 5.1 (`list_tickets`, `get_ticket_details`, `create_ticket`, `add_comment`, `update_status`) | Fully Addressed |
+| **FR-4.3** | ServiceImmediately Guardrails | Section 5.1 (State Machine, 5-min Duplication Window, Priority Verification) | Fully Addressed |
+| **FR-5.1** | Document Ingestion | Section 1.3, 1.4 (Vertex AI Search / Cloud Storage) | Fully Addressed |
+| **FR-5.2** | Grounded Answers | Section 3.2, 4.3 (Vertex RAG + Model Armor Check) | Fully Addressed |
+| **FR-5.3** | Source Citation | Section 3.2, 5.1 (Clickable Deep-Link Citations) | Fully Addressed |
+| **FR-5.4** | Policy Retrieval Guardrails | Section 4.3 (Domain Containment & Grounding) | Fully Addressed |
+| **FR-5.5** | Document Sync Latency | Section 2, 8 (15-Minute Sync SLA Trigger) | Fully Addressed |
+| **NFR-1.1** | Safety for AI Interactions | Section 4.3 (Model Armor Input/Output Guard) | Fully Addressed |
+| **NFR-1.2** | Audit Logging | Section 4.3, 9.1 (100% BigQuery Audit Logs) | Fully Addressed |
+| **NFR-1.3** | Compliance Adherence | Section 4.2, 4.3 (GDPR SPII Redaction & Isolation) | Fully Addressed |
+| **NFR-2.1** | Latency | Section 1.4, 9.1 ($< 10\text{s}$ total, $< 300\text{ms}$ safety) | Fully Addressed |
+| **NFR-2.2** | Availability | Section 2 (Google Cloud Run Auto-scaling 99.9%) | Fully Addressed |
+| **NFR-2.3** | Asynchronous Processing | Section 3.1, 8 (`asyncio.gather` tool calling) | Fully Addressed |
+| **NFR-3.1** | Accuracy Rate | Section 9.1 ($\ge 95\%$ benchmark accuracy) | Fully Addressed |
+| **NFR-4.1** | Graceful Failure Handling | Section 5.2 (Non-technical fallback messages) | Fully Addressed |
+| **NFR-4.2** | Transient Fault Tolerance | Section 5.2 (Exponential Backoff Retries) | Fully Addressed |
+| **NFR-4.3** | Orchestration Consistency | Section 5.2 (Tracking Reference Logs & Follow-up) | Fully Addressed |
+| **UC-1.1** | Policy Q&A Use Case | Section 3.2 (UC-1.1 Sequence Flow) | Fully Addressed |
+| **UC-1.2** | HR Self-Service Use Case | Section 3.2 (UC-1.2 Sequence Flow) | Fully Addressed |
+| **UC-1.3** | IT Incident Use Case | Section 3.2 (UC-1.3 Sequence Flow) | Fully Addressed |
+| **UC-2.1** | Equipment Procurement Use Case | Section 3.2 (UC-2.1 Sequence Flow) | Fully Addressed |
+| **UC-2.2** | Medical Leave Use Case | Section 3.2 (UC-2.2 Sequence Flow) | Fully Addressed |
+| **UC-2.3** | Relocation Use Case | Section 3.2 (UC-2.3 Sequence Flow) | Fully Addressed |
 
 ---
 
@@ -330,7 +433,7 @@ gantt
 | # | Topic / Question | Confirmed Architecture Selection | Status |
 | :- | :--- | :--- | :--- |
 | **D-1** | **Partial Cross-System Failure** | Log partial failure with a tracking reference ID and notify user with manual follow-up instructions (`NFR-4.3`). | Approved |
-| **D-2** | **MCP Token Credentials** | Pre-provisioned Service PAT in `X-MCP-Token` header; user `employee_id` passed in tool context. | Approved |
+| **D-2** | **MCP Token Credentials** | Pre-provisioned Service PAT in `X-MCP-Token` header; user `employee_id` passed in tool context (`FR-3.1`). | Approved |
 | **D-3** | **Safety Interceptor** | **Google Cloud Model Armor** for prompt injection defense, jailbreak prevention, PII masking, and output toxicity filtering (`FR-1.3`, `FR-1.4`). | Approved |
-| **D-4** | **Knowledge Base (RAG)** | **Vertex AI Search / Agent Builder Knowledge Base** with Cloud Storage ingestion, semantic chunking, and deep links (`FR-5.1` - `FR-5.4`). | Approved |
+| **D-4** | **Knowledge Base (RAG)** | **Vertex AI Search / Agent Builder Knowledge Base** with Cloud Storage ingestion, semantic chunking, and deep links (`FR-5.1` - `FR-5.5`). | Approved |
 | **D-5** | **Session Memory State** | **Google Cloud Agent Platform Agent Runtime Session Service** for multi-turn state management (`FR-2.2`). | Approved |
