@@ -1,227 +1,330 @@
-# Software Design Document (SDD): Project Elevate — Altostrat Singapore HR Policy Assistant
+# **MVP SOLUTION DESIGN DOCUMENT**
 
-**Document Status:** Final Approved Design  
-**Author:** AI Agent Architecture Team  
-**Date:** 2026-08-04  
-**Version:** 1.0.0  
-**Target System:** Google ADK `LlmAgent` with Pluggable Dual-Brain Retrieval (`OKF` / `RAG`)
+# **Document Control**
 
----
+## **Document Metadata**
 
-## 1. Executive Summary & Business Context
+| Field | Value |
+| :---- | :---- |
+| Author(s) | Solution Architecture Team |
+| Date | 2026-08-05 |
+| Status | Approved |
+| Target Audience | Enterprise Architecture, HR Engineering, IT Operations, Security & Compliance |
 
-### 1.1 Problem Statement
-Altostrat Singapore employs a diverse workforce (full-time staff, interns, and extended workforce) governed by a 52-page *Employee Policy Handbook & Conduct Guidelines* (`data/handbook.pdf`). Currently, HR teams are bottlenecked by repetitive employee inquiries regarding policies such as sick time, vacation accruals, travel expense caps, and business gifts. Employees rarely read the full 52-page PDF, leading to inconsistent HR guidance and significant legal and compliance risks—especially when "gotcha" rules apply (e.g., categorical prohibitions overriding dollar limits).
+## **Revision History**
 
-### 1.2 Business Objectives
-**Project Elevate** deploys an authoritative, conversational AI HR Policy Assistant that:
-- Delivers **100% grounded answers** derived strictly from the Altostrat Singapore Employee Policy Handbook.
-- Provides **explicit citations** (section number and title) for every factual claim.
-- **Refuses out-of-domain queries** and explicitly abstains when no policy exists, eliminating hallucinated HR advice.
-- Enforces complex compliance rules, including jurisdictional hierarchy (Singapore local rules override global defaults) and categorical prohibitions.
-
-### 1.3 Scope, Goals & Non-Goals
-* **In-Scope Goals:**
-  * Support a **Pluggable Dual-Brain Architecture** (`OKF`, `RAG`, and `Hybrid` modes) controlled via environment variables (`RETRIEVAL_MODE`).
-  * Enforce strict prompt-level guardrails for gotchas and multi-step mathematical reasoning.
-  * Validate agent performance using an automated 5-dimension evaluation rubric (`evals/RUBRICS.md`).
-* **Non-Goals (Out of Scope):**
-  * Modifying HR policies or executing transactional HR updates (e.g., booking time off or submitting expense reports).
-  * Utilizing external web search or general pre-trained knowledge to answer policy inquiries.
-
-### 1.4 Definitions & Acronyms
-| Term / Acronym | Definition |
-|---|---|
-| **BRD** | Business Requirements Document |
-| **SDD** | Software Design Document |
-| **ADK** | Google Agent Development Kit |
-| **OKF** | Open Knowledge Format — cross-linked markdown bundles with YAML frontmatter |
-| **RAG** | Retrieval-Augmented Generation — vector/semantic search via Google Vertex AI Search |
-| **TOIL** | Time Off In Lieu |
-| **WSH** | Workplace Safety and Health |
+| Version | Date | Author | Description of Change |
+| :---- | :---- | :---- | :---- |
+| 0.1 | 2026-08-05 | Solution Architecture Team | Initial outline setup |
+| 1.0 | 2026-08-05 | Solution Architecture Team | Complete MVP 1 design incorporating FastMCP integration specs from `openapi.json` |
 
 ---
 
-## 2. System Overview & High-Level Architecture
+# **1. Executive Summary & Scope Boundaries**
 
-### 2.1 Architectural Approach
-Project Elevate decouples the conversational reasoning engine (Google ADK `LlmAgent` powered by Gemini) from the retrieval layer ("The Brain"). Using a **Pluggable Dual-Brain Architecture**, the agent can switch between two retrieval backends without changing the prompt or orchestration logic:
-1. **Track B — OKF (Open Knowledge Format):** Deliberate graph navigation over structured markdown files (`knowledge/`). Zero cloud dependency; deterministic concept traversal.
-2. **Track A — RAG (Vertex AI Search):** Semantic search over the indexed 52-page PDF (`data/handbook.pdf`) hosted in Google Cloud Vertex AI Search.
+## **1.1. Business Overview & Context**
+Enterprise employees currently experience friction and high turnaround times when navigating disconnected backend UIs (WorkWeek for HCM, ServiceImmediately for ITSM) and static HR policy repositories. Simultaneously, HR and IT helpdesks face significant Tier 1 ticket loads for routine queries. 
 
-### 2.2 High-Level Architecture Diagram
+The **HR Agentic Solution (MVP 1)** introduces a secure, AI-driven virtual assistant designed to:
+* **Deflect Tier 1 HR/IT Inquiries:** Achieve a $\ge 40\%$ reduction in routine ticket volume within 6 months.
+* **Enable Conversational Transactions:** Execute core self-service actions (leave submission, contact updates, ticket tracking) conversationally.
+* **Demonstrate Cross-System Orchestration:** Multi-step intent resolution chaining Policy RAG, WorkWeek HCM, and ServiceImmediately ITSM.
+* **Enforce Zero-Trust AI Security:** Guarantee 100% auditability, bounded tool execution via MCP, prompt injection interception, and zero policy/data leakage.
+
+## **1.2. Scope Boundaries**
+
+| Feature / Domain | In-Scope (MVP 1) | Out-of-Scope (MVP 1) |
+| :--- | :--- | :--- |
+| **User Interface** | Web-based Chat Interface / Enterprise Chat Integration | Voice UI, native mobile apps |
+| **Knowledge Base** | Static HR Policy Docs (Leave, Expense, Remote Work, Code of Conduct) | Dynamic intranet pages, uncategorized docs |
+| **HCM Integration** | **WorkWeek via FastMCP**: Profile metadata, PTO balance check, Leave booking/cancellation, Address/Phone update | Payroll processing, performance reviews, compensation data |
+| **ITSM Integration** | **ServiceImmediately via FastMCP**: Ticket status/details query, Incident ticket creation, Comment timeline, Status lifecycle updates | Change management, asset management, IT provisioning |
+| **Orchestration** | Multi-system workflows (UC-2.1 Equipment, UC-2.2 Medical Leave, UC-2.3 Relocation) | Third-party ERPs, CRM integrations |
+| **Security & Auth** | Custom `X-MCP-Token` header authentication, tenant isolation by Employee ID, regex/model safety guardrails | Full Enterprise SSO / Okta SAML (future state) |
+
+## **1.3. Target Architecture Overview**
+
+The solution leverages Google ADK (Agent Development Kit) with Streamable HTTP FastMCP toolsets (`McpToolset`), wrapped in an Input/Output Safety Interceptor pipeline.
 
 ```mermaid
 graph TD
-    User["Employee / HR User"] -->|HR Policy Question| LlmAgent["ADK LlmAgent (Gemini)"]
-    LlmAgent -->|Reads System Prompt| Prompt["agent/prompt.py (Grounding & Guardrails)"]
-    LlmAgent -->|Checks Config| Config["agent/config.py (RETRIEVAL_MODE)"]
+    User(["Employee / User UI"]) -->|Web Chat Request| UI["Conversational Chat Frontend"]
+    UI -->|HTTP Request| Interceptor["Safety & Governance Interceptor"]
     
-    subgraph "Pluggable Dual-Brain Retrieval Engine"
-        Config -->|mode = okf| OKFTool["agent/tools/okf_tool.py"]
-        Config -->|mode = rag| RAGTool["agent/tools/rag_tool.py"]
-        
-        OKFTool -->|list_concepts / read_concept| LocalOKF["Local OKF Markdown Bundle (knowledge/)"]
-        RAGTool -->|search_policy_docs| VertexSearch["Google Vertex AI Search (hr-policies-lab-engine)"]
+    subgraph Governance["Governance & Safety Layer"]
+        Interceptor -->|1. Input Guard| PromptGuard["Prompt Injection & Safety Filter"]
+        Interceptor -->|2. Masking| PIIRedactor["PII & SPII Masker"]
     end
-    
-    LocalOKF -->|Retrieved Policy Text| LlmAgent
-    VertexSearch -->|Retrieved Chunks| LlmAgent
-    
-    LlmAgent -->|Grounds & Cites| Response["Formatted Answer + Sources: Footer"]
-    Response --> User
+
+    PromptGuard -->|Validated User Prompt| Orchestrator["Google ADK Agent Orchestrator"]
+
+    subgraph Orchestration["Agentic Orchestration Layer"]
+        Orchestrator -->|Intent Classification| Supervisor["Supervisor Agent"]
+        Supervisor -->|Policy Query| PolicyAgent["Policy RAG Tool / Vector Store"]
+        Supervisor -->|WorkWeek MCP| WorkWeekMCP["WorkWeek FastMCP Server"]
+        Supervisor -->|ServiceImmediately MCP| ServiceMCP["ServiceImmediately FastMCP Server"]
+    end
+
+    subgraph Backend["Enterprise Backend Services (openapi.json)"]
+        PolicyAgent -->|Semantic Search| PolicyKB[("Static HR Policies Index")]
+        WorkWeekMCP -->|Streamable HTTP /work-week/mcp/| WWBackend[("WorkWeek HCM System")]
+        ServiceMCP -->|Streamable HTTP /service-immediately/mcp/| SIMBackend[("ServiceImmediately ITSM System")]
+    end
+
+    Orchestrator -->|Raw Output| OutputGuard["Output Validator & Toxicity Check"]
+    OutputGuard -->|Validated Response + Citations| UI
 ```
 
-### 2.3 End-to-End Request/Response Flow
+## **1.4. Alternatives Considered**
 
+| Architectural Pattern | Evaluated Alternative | Selected Choice & Rationale |
+| :--- | :--- | :--- |
+| **Backend Integration** | Direct REST Endpoint Calling | **Streamable HTTP MCP Servers (`FastMCP`)**: Provides standardized tool discovery, strict type schema enforcement, stateless transport, and built-in ADK compatibility via `McpToolset`. |
+| **Agent Framework** | Monolithic Prompt / LangChain | **Google ADK Agentic Framework**: Native support for `StreamableHTTPConnectionParams`, robust state management, and enterprise-grade telemetry. |
+| **Safety Interceptor** | In-Prompt Guardrails | **Standalone Interceptor Pipeline**: In-prompt rules are vulnerable to jailbreaking. Separate input/output scanning guarantees deterministic interception without polluting agent context. |
+
+---
+
+# **2. Production-Ready Future State Design**
+
+The production target architecture expands MVP 1 into a highly scalable, enterprise-grade deployment:
+1. **Identity & Auth Federation**: Transition from `X-MCP-Token` header authentication to Enterprise SSO (Okta / Entra ID) via Google Cloud Identity-Aware Proxy (IAP), automatically injecting `x-goog-authenticated-user-email` headers.
+2. **Multi-Tenancy & Fleet Management**: Scale MCP server instances using Google Cloud Run with auto-scaling (0-100 instances), registered in Agent Registry for enterprise fleet management.
+3. **Dynamic Knowledge Base Sync**: Replace static policy document indexing with an automated Event-Driven Document Sync pipeline (Cloud Storage trigger $\rightarrow$ Document AI $\rightarrow$ Vertex AI Vector Search) achieving sub-15 minute sync SLAs.
+4. **Asynchronous Streaming**: Implement Server-Sent Events (SSE) / WebSockets for real-time response streaming to reduce perceived latency below $1.5\text{s}$.
+
+---
+
+# **3. System Flows, Sequence Diagrams & Agent Design**
+
+## **3.1. Agent Design**
+The core system uses a **Supervisor Agent** orchestrating three specialized tool sets:
+* **Policy RAG Tool**: Performs hybrid dense-sparse vector search against HR policies, returning grounded answers with metadata citations.
+* **WorkWeek MCP Toolset** (`/work-week/mcp/`): Exposes `get_current_employee_id`, `get_employee_balances`, `request_time_off`, `update_personal_info`, `get_personal_info`, and `cancel_leave_request`.
+* **ServiceImmediately MCP Toolset** (`/service-immediately/mcp/`): Exposes `list_tickets`, `create_ticket`, `add_ticket_comment`, and `update_ticket_status`.
+
+---
+
+## **3.2. Sequence Diagrams**
+
+### **UC-1.1: Policy Q&A Flow**
 ```mermaid
 sequenceDiagram
     autonumber
-    actor U as Employee
-    participant A as LlmAgent (Gemini)
-    participant C as Config (RETRIEVAL_MODE)
-    participant T as Tool Engine (OKF / RAG)
-    participant K as Knowledge Base (OKF / Vertex AI)
-    
-    U->>A: "Can I buy a $45 gift card for an external host?"
-    A->>C: Read RETRIEVAL_MODE
-    alt RETRIEVAL_MODE == 'okf'
-        A->>T: okf_tool.list_concepts()
-        T->>K: Scan knowledge/index.md & directories
-        K-->>T: Return Concept List
-        A->>T: okf_tool.read_concept("05-ethics.../5.2-commercial-gifts...")
-        T->>K: Read Markdown file + Frontmatter
-        K-->>T: Return full policy section text
-    else RETRIEVAL_MODE == 'rag'
-        A->>T: rag_tool.search_policy_docs("commercial gifts gift card limit")
-        T->>K: Query Vertex AI Search Engine
-        K-->>T: Return Top-K Semantic Policy Chunks
-    end
-    T-->>A: Provide Grounded Policy Context
-    A->>A: Apply Guardrails (Prohibitions override dollar caps)
-    A-->>U: Return Grounded Response with explicit "Sources:" citation
+    actor Employee
+    participant UI as Chat UI
+    participant Guard as Safety Guardrail
+    participant Agent as ADK Agent
+    participant RAG as Policy Vector Store
+
+    Employee->>UI: "What is the company's bereavement leave policy?"
+    UI->>Guard: Validate Input (Prompt Injection Check)
+    Guard-->>UI: Input Approved
+    UI->>Agent: Process Query
+    Agent->>RAG: Hybrid Search ("bereavement leave policy")
+    RAG-->>Agent: Relevant Excerpts + Document Metadata
+    Agent->>Guard: Validate Output (Grounding & Citation Check)
+    Guard-->>Agent: Output Approved
+    Agent-->>UI: Grounded Answer + Clickable Citation Link
+    UI-->>Employee: Display Answer with Deep Link
+```
+
+### **UC-1.2: HR Self-Service - PTO Submission**
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Employee
+    participant Agent as ADK Agent
+    participant WW as "WorkWeek FastMCP (/work-week/mcp/)"
+    participant WW_DB as WorkWeek HCM Database
+
+    Employee->>Agent: "Submit PTO for next Thursday and Friday."
+    Agent->>WW: get_current_employee_id()
+    WW-->>Agent: employee_id = "EMP-1002"
+    Agent->>WW: get_employee_balances("EMP-1002")
+    WW->>WW_DB: Query PTO Balances
+    WW_DB-->>WW: Vacation Balance: 40 hrs (5 days)
+    WW-->>Agent: Remaining Vacation Days = 5
+    Agent->>Agent: Validate Request (2 days requested <= 5 available, dates valid)
+    Agent->>WW: request_time_off("EMP-1002", "2026-08-13", "2026-08-14", "Vacation", 2)
+    WW->>WW_DB: Deduct 2 days & Create TimeOff Record
+    WW_DB-->>WW: Success (Request ID: 501)
+    WW-->>Agent: Confirmation Payload
+    Agent-->>Employee: "Your 2-day Vacation request (Aug 13-14) is confirmed. Balance remaining: 3 days."
+```
+
+### **UC-2.1: Cross-System Orchestration - Equipment Procurement**
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Employee
+    participant Agent as ADK Agent
+    participant RAG as Policy Vector Store
+    participant WW as WorkWeek FastMCP
+    participant SI as ServiceImmediately FastMCP
+
+    Employee->>Agent: "Can you verify my remote status and order a home office monitor?"
+    Agent->>RAG: Query Remote Work Policy
+    RAG-->>Agent: Policy Excerpt: Remote employees eligible for home office monitor
+    Agent->>WW: get_personal_info(employee_id)
+    WW-->>Agent: {address: "123 Tech Way, London", role: "Remote Software Engineer"}
+    Agent->>Agent: Verify Remote Eligibility == True
+    Agent->>SI: create_ticket(requested_by, category="Hardware", short_description="Home Office Monitor Request", priority="4 - Low")
+    SI-->>Agent: {ticket_id: "INC-98231", state: "New"}
+    Agent-->>Employee: "Verified remote status. Hardware request INC-98231 created in ServiceImmediately for shipping to 123 Tech Way."
 ```
 
 ---
 
-## 3. Component & API Design
+# **4. Security, Governance & Identity**
 
-### 3.1 Orchestration Engine (`LlmAgent` & `agent/agent.py`)
-- **Responsibility:** Orchestrates user interactions, tool dispatching, context window management, and response synthesis.
-- **Specification:** Constructed using Google ADK `LlmAgent`. Injects `POLICY_AGENT_PROMPT` from `agent/prompt.py` and binds tools dynamically based on `RETRIEVAL_MODE`.
+## **4.1. Authentication Boundaries**
+In production, backend services bypass IAP and require a custom **Personal Access Token (PAT)** header to satisfy Google Frontend (GFE) proxy requirements:
+```http
+X-MCP-Token: mcp_your_token_here
+```
 
-### 3.2 Retrieval Brain Track B — OKF Tool (`agent/tools/okf_tool.py`)
-- **Purpose:** Provides deterministic, graph-style navigation across structured policy concepts.
-- **Tool APIs Exposed:**
-  1. `list_concepts()`
-     - **Input:** None (or optional section filter).
-     - **Output:** JSON list of available concept IDs, section titles, and file paths.
-  2. `read_concept(concept_id: str)`
-     - **Input:** `concept_id` (e.g., `"01-paid-time-off-leave-operations/1.2-paid-vacation-leave-singapore.md"`).
-     - **Output:** Full text of the markdown concept, including YAML frontmatter (`title`, `section`, `source`).
+ADK agents configure connection parameters statelessly using custom HTTP headers:
+```python
+from google.adk.agents import Agent
+from google.adk.tools.mcp_tool import McpToolset
+from google.adk.tools.mcp_tool.mcp_session_manager import StreamableHTTPConnectionParams
 
-### 3.3 Retrieval Brain Track A — RAG Tool (`agent/tools/rag_tool.py`)
-- **Purpose:** Semantic similarity retrieval over unstructured policy documentation.
-- **Tool APIs Exposed:**
-  1. `search_policy_docs(query: str, top_k: int = 5)`
-     - **Input:** Natural language search query.
-     - **Output:** List of matching document snippets with metadata (page number, section title, relevance score).
+workweek_mcp = McpToolset(
+    connection_params=StreamableHTTPConnectionParams(
+        url="https://mock-saas.aishprabhat.demo.altostrat.com/work-week/mcp/",
+        headers={"X-MCP-Token": "mcp_your_token_here"}
+    )
+)
 
-### 3.4 Configuration Subsystem (`agent/config.py`)
-- **Environment Switches:**
-  - `GEMINI_MODEL`: Specifies model version (e.g., `"gemini-3.5-flash"`).
-  - `RETRIEVAL_MODE`: Swaps active tools between `"okf"`, `"rag"`, or `"hybrid"`.
-  - `GOOGLE_CLOUD_PROJECT`, `VERTEX_AI_DATA_STORE_ID`, `VERTEX_AI_SEARCH_ENGINE_ID`: Vertex AI Search bindings.
+serviceimmediately_mcp = McpToolset(
+    connection_params=StreamableHTTPConnectionParams(
+        url="https://mock-saas.aishprabhat.demo.altostrat.com/service-immediately/mcp/",
+        headers={"X-MCP-Token": "mcp_your_token_here"}
+    )
+)
+```
 
----
+## **4.2. Tenant Isolation Rules**
+* **Identity Context Verification**: Every FastMCP resource query (`workweek://employees/{employee_id}/profile`) and tool call (`get_employee_balances`) verifies caller identity against the authenticated session context.
+* **Cross-User Data Block**: Users attempting to pass another user's `employee_id` will receive an immediate `403 Forbidden` / access denied error.
 
-## 4. Prompt Engineering & Compliance Guardrails (`agent/prompt.py`)
-
-To satisfy business compliance rules without hardcoding fragile regex filters, guardrails are architected directly into `POLICY_AGENT_PROMPT`:
+## **4.3. Safety Interceptor Pipeline & Guardrails**
 
 ```mermaid
-flowchart TD
-    Q["User Inquiry"] --> R["Retrieval-First Mandate: Call okf_tool / rag_tool"]
-    R --> G["Retrieved Policy Content"]
-    
-    G --> CheckProhibit{"Is item in a Prohibited Category?\n(e.g., Cash, Gift Cards, Adult Entertainment)"}
-    CheckProhibit -->|Yes| Reject["DENY Request Immediately\n(Dollar Caps DO NOT Apply)"]
-    CheckProhibit -->|No| CheckJurisdiction{"Does Singapore local policy exist?"}
-    
-    CheckJurisdiction -->|Yes| ApplySG["Apply Singapore Policy\n(Overrides Global Default)"]
-    CheckJurisdiction -->|No| ApplyGlobal["Apply Global Policy"]
-    
-    ApplySG --> CheckMath{"Requires Calculation?\n(e.g., Shift conversion, Accruals)"}
-    ApplyGlobal --> CheckMath
-    
-    CheckMath -->|Yes| Calc["Show step-by-step arithmetic"]
-    CheckMath -->|No| CheckDomain{"Policy exists in Handbook?"}
-    
-    Calc --> CheckDomain
-    CheckDomain -->|No / Out of Domain| Abstain["ABSTAIN: State explicitly that no policy is on file\n(Zero Guessing)"]
-    CheckDomain -->|Yes| Formatter["Format final answer + Append structured Sources: footer"]
-    
-    Reject --> Formatter
-    Abstain --> Final["Return Response"]
-    Formatter --> Final
+graph LR
+    UserPrompt[User Prompt] --> InputGuard{Input Safety Guard}
+    InputGuard -->|Jailbreak / Injection| BlockInput[Block & Log]
+    InputGuard -->|Passed| AgentExec[Agent Execution & MCP Tool Calls]
+    AgentExec --> OutputGuard{Output Safety Guard}
+    OutputGuard -->|Toxicity / Hallucination| BlockOutput[Redact & Fallback]
+    OutputGuard -->|PII Detected| MaskPII[Redact SPII]
+    MaskPII --> FinalResponse[User Response]
 ```
 
-### 4.1 Strict Guardrail Rules
-1. **Retrieval-First Mandate:** The agent must never answer from pre-trained weights; it must invoke retrieval tools before responding.
-2. **Prohibitions Override Thresholds:** Categorical prohibitions (e.g., gift cards, adult entertainment) take precedence over general spending thresholds (e.g., $50 host gifts).
-3. **Singapore Jurisdiction Hierarchy:** Singapore-specific handbook sections (e.g., Singapore Shared Parental Leave, TOIL) override global default sections.
-4. **Strict Abstention Protocol:** If an inquiry is out of domain (e.g., programming help, personal tax advice) or if no policy is on file, the agent must explicitly state so without guessing.
-5. **Mandatory Citation Footer:** Every response must terminate with a structured footer:
-   ```markdown
-   Sources:
-   - Section <Number>: <Section Title>
-   ```
+1. **Input Validation (`FR-1.3`)**: Regex and classifier models intercept jailbreaks, system prompt overrides, and off-topic queries.
+2. **Output Validation (`FR-1.3`)**: Validates model output against grounded retrieved context to guarantee 0% hallucinated policies.
+3. **Data Masking (`FR-1.4`)**: Redacts SSNs, phone numbers, and addresses from application log files using Named Entity Recognition (NER) and regex.
+4. **Audit Logging (`FR-1.2`, `NFR-1.2`)**: Logs all tool calls with `automation_source: "Agentic_HR_Assistant"`, caller ID, execution status, and timestamp.
 
 ---
 
-## 5. Data Model & Knowledge Storage Architecture
+# **5. Integration Details & Error Handling**
 
-### 5.1 Single Source of Truth
-- The master corporate policy resides in `data/handbook.pdf` (52-page Altostrat Singapore Employee Policy Handbook).
+## **5.1. FastMCP Tool Specifications**
 
-### 5.2 Open Knowledge Format (OKF) Storage Schema (`knowledge/`)
-- Organized into numbered category subdirectories (e.g., `01-paid-time-off-leave-operations/`, `04-travel-expense-te-guidelines/`).
-- Each concept file is a standalone `.md` file with YAML frontmatter:
-  ```yaml
-  ---
-  type: concept
-  title: Paid Vacation Leave — Singapore
-  section: "1.2"
-  source: handbook.pdf#page=6
-  ---
-  ```
+### **1. WorkWeek FastMCP Server (`/work-week/mcp/`)**
 
----
+| Tool Name | Parameters | Description & Validation Rules |
+| :--- | :--- | :--- |
+| `get_current_employee_id()` | None | Resolves the authenticated user's `employee_id`. |
+| `get_employee_balances` | `employee_id: str` | Returns accrued, used, and remaining Vacation/Sick leave balances. |
+| `request_time_off` | `employee_id: str`, `start_date: str`, `end_date: str`, `leave_type: str`, `days: float` | Books time off. Dates must be `YYYY-MM-DD`. Validates $start \le end$, start $\ge$ today, and $days \le remaining\_balance$. |
+| `update_personal_info` | `employee_id: str`, `address: str`, `phone: str` | Updates home address ($\ge 5$ chars) and phone number (regex `^\+?[\d\s\-()]{7,20}$`). |
+| `get_personal_info` | `employee_id: str` | Retrieves personal address and phone details. |
+| `cancel_leave_request` | `employee_id: str`, `request_id: int` | Cancels a pending/approved request and refunds remaining leave days. |
 
-## 6. Verification, Evaluation & Quality Assurance Architecture
+### **2. ServiceImmediately FastMCP Server (`/service-immediately/mcp/`)**
 
-### 6.1 Automated Evaluation Harness (`evals/run_eval.py`)
-- Executes automated regression tests against `evals/policy_eval.json`.
-- Uses an LLM-as-judge scoring pipeline governed by `evals/RUBRICS.md`.
-
-### 6.2 5-Dimension Evaluation Rubric
-Each answer is evaluated across 5 independent dimensions (0 / 1 / 2 points), rolled up to a 100% case score:
-1. **Correctness (Weight 3):** All factual claims are accurate and complete.
-2. **Grounding (Weight 3):** Claims are 100% supported by retrieved text (no hallucinations).
-3. **Reasoning / Gotcha Handling (Weight 3):** Properly identifies categorical prohibitions and shows calculations.
-4. **Abstention (Weight 2):** Refuses out-of-domain queries and unanswerable questions cleanly.
-5. **Citation (Weight 1):** Contains valid, exact `Sources:` section references.
+| Tool Name | Parameters | Description & Validation Rules |
+| :--- | :--- | :--- |
+| `list_tickets` | `employee_id: str` | Retrieves all incident tickets requested by the employee. |
+| `create_ticket` | `requested_by: str`, `category: str`, `short_description: str`, `priority: str`, `assignment_group: str` | Creates incident. Rejects duplicate submissions within 5 mins. Priority `'1 - Critical'` requires outage/downtime keywords. |
+| `add_ticket_comment` | `ticket_id: str`, `author: str`, `comment: str` | Appends comment to ticket activity log timeline. |
+| `update_ticket_status` | `ticket_id: str`, `status: str`, `resolution_notes: str`, `updated_by: str` | Enforces state machine: `New -> In Progress/Closed`, `In Progress -> Resolved/Closed`, `Resolved -> In Progress/Closed`. Closed tickets are immutable. |
 
 ---
 
-## 7. BRD-to-SDD Requirements Traceability Matrix
+## **5.2. Error Handling & Fallback Matrix**
 
-| BRD Requirement ID | Business Requirement Description | SDD Architectural Component | Verification & Eval Rubric Dimension |
-|---|---|---|---|
-| **BRD-REQ-01** | Answers must be 100% grounded in the Altostrat Handbook without guessing. | `LlmAgent` + `okf_tool.py` / `rag_tool.py` + `agent/prompt.py` (Retrieval-First Mandate) | **Grounding** (Weight 3) |
-| **BRD-REQ-02** | Every factual response must cite the exact handbook section number and title. | `agent/prompt.py` (Mandatory Citation Footer Block) | **Citation** (Weight 1) |
-| **BRD-REQ-03** | Prohibited spending categories must override dollar spending limits. | `agent/prompt.py` (Priority Rule #3: Prohibitions Override Thresholds) | **Reasoning / Gotcha** (Weight 3) |
-| **BRD-REQ-04** | Singapore-specific policies must override general global policy defaults. | `agent/prompt.py` (Priority Rule #4: Singapore Jurisdiction Hierarchy) | **Correctness** (Weight 3) |
-| **BRD-REQ-05** | Out-of-domain or unanswerable queries must be refused without speculation. | `agent/prompt.py` (Abstention & Domain Boundary Protocol) | **Abstention** (Weight 2) |
-| **BRD-REQ-06** | Support both structured graph navigation and semantic vector search. | `agent/config.py` (`RETRIEVAL_MODE` switch: `okf`, `rag`, `hybrid`) | Architecture Sanity Suite (`check_okf.py`) |
-| **BRD-REQ-07** | Automated quality benchmarking across all HR compliance cases. | `evals/run_eval.py` + `evals/policy_eval.json` + `evals/RUBRICS.md` | Full 100-Point Composite Score |
+| Failure Scenario | Root Cause | Fallback Behavior & User Message |
+| :--- | :--- | :--- |
+| **Transient Network Timeout / 5xx** | Backend service glitch | Automatic exponential backoff retry (up to 3 attempts). If persistent: *"WorkWeek is temporarily unavailable. Please try again shortly."* |
+| **Insufficient PTO Balance** | Business rule violation | Agent intercepts error: *"Request declined: You requested 5 days, but only have 2 days remaining."* |
+| **Invalid Ticket State Transition** | State machine violation | Agent catches state rule: *"Ticket INC-123 is Closed and cannot be updated."* |
+| **Partial Cross-System Failure** | Step 1 succeeds, Step 2 fails | Saga transaction log records failure. User notified: *"Leave request submitted in WorkWeek, but ticket creation in ServiceImmediately failed. Reference ID: LOG-8812."* |
+
+---
+
+# **6. Cost Estimation & FinOps**
+
+| Variable | Cost Driver | Optimization Strategy |
+| :--- | :--- | :--- |
+| **Model Inference** | Gemini 3.5 / 3.6 Flash input/output token usage | Prompt caching for policy system prompts; concise system instructions. |
+| **Vector Storage** | Embedding storage and search queries | Chunk size optimization (500 tokens with 50 token overlap); hybrid vector index. |
+| **MCP Compute** | Cloud Run CPU/Memory per HTTP request | Scale-to-zero Cloud Run instances during off-peak hours. |
+| **Safety Interceptor** | Dual-pass guardrail evaluation | Lightweight regex filters before executing heavy model-based classifiers. |
+
+---
+
+# **7. Deployment & Delivery Plan**
+
+```mermaid
+gantt
+    title MVP 1 Phased Delivery Plan
+    dateFormat  YYYY-MM-DD
+    section Phase 1: Foundation
+    Environment Setup & Terraform        :2026-08-06, 5d
+    MCP Toolset Integration & Testing    :2026-08-09, 7d
+    section Phase 2: Agent Development
+    Supervisor Agent & RAG Pipeline       :2026-08-16, 8d
+    Safety Interceptor & PII Redaction   :2026-08-20, 6d
+    section Phase 3: Validation
+    Cross-System Flow Integration Tests   :2026-08-24, 6d
+    UAT Benchmark & Security Scan         :2026-08-28, 5d
+    section Phase 4: Launch
+    Production Deployment & Rollout       :2026-09-02, 3d
+```
+
+---
+
+# **8. Assumptions, Constraints, Risk & Mitigations**
+
+| Category | Risk / Constraint | Mitigation Strategy |
+| :--- | :--- | :--- |
+| **Constraint** | FastMCP headers require `X-MCP-Token` due to GFE proxy rules. | Pre-configure `StreamableHTTPConnectionParams` with exact header specs in ADK config. |
+| **Risk** | Duplicate ticket submission during network retries. | FastMCP server enforces 5-minute deduplication window on identical short descriptions. |
+| **Risk** | Latency breach ($>10\text{s}$) due to sequential tool calls. | Execute independent tool calls asynchronously using Python `asyncio.gather`. |
+| **Assumption** | Policy documents remain static during MVP 1. | Knowledge base manual re-index script provided for scheduled updates (`FR-5.5`). |
+
+---
+
+# **9. Quality Evaluation & UAT Framework**
+
+| Evaluation Category | Target Metric / Benchmark | Verification Method |
+| :--- | :--- | :--- |
+| **Policy Q&A Accuracy** | $\ge 95\%$ accuracy; 0% policy hallucination | Run 100-question ground-truth evaluation set via LLM-as-judge. |
+| **Transaction Integrity** | $100\%$ transaction correctness | Automated test suite verifying WorkWeek & ServiceImmediately DB state changes. |
+| **Prompt Injection Defense** | $100\%$ detection of jailbreak test cases | Execute OWASP LLM Top 10 benchmark injection attacks. |
+| **Response Latency** | $< 10.0\text{s}$ average response time; safety overhead $< 300\text{ms}$ | Latency tracing via Cloud Trace telemetry. |
+| **Audit Log Coverage** | $100\%$ coverage of actions with origin metadata | Log audit parser verifying `automation_source` fields in BigQuery. |
+
+---
+
+# **10. Assumptions / Open Questions**
+
+| # | Assumption / Question | Owner | Status / Target Date |
+| :- | :--- | :--- | :--- |
+| **A-1** | `X-MCP-Token` credentials will be provisioned per test environment. | Security Team | Approved |
+| **A-2** | Policy document repository updates occur at most once per week in MVP 1. | HR Ops | Approved |
+| **Q-1** | Should failed cross-system steps trigger an automatic rollback (e.g. canceling leave if ticket fails)? | HR / Tech Lead | Open (Currently logging for manual follow-up per `NFR-4.3`) |
