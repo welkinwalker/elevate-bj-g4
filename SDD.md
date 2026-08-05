@@ -372,9 +372,7 @@ gantt
 
 ---
 
-# **9. Quality Evaluation & BRD Requirement Traceability Matrix**
-
-## **9.1. Quality Evaluation Framework**
+# **9. Quality Evaluation & UAT Framework**
 
 | Evaluation Category | Target Metric / Benchmark | Verification Method |
 | :--- | :--- | :--- |
@@ -383,48 +381,6 @@ gantt
 | **Prompt Injection Defense** | $100\%$ detection of jailbreak test cases | Execute OWASP LLM Top 10 benchmark injection attacks via Model Armor (`FR-1.3`). |
 | **Response Latency** | $< 10.0\text{s}$ average response time; safety overhead $< 300\text{ms}$ | Latency tracing via Cloud Trace telemetry (`NFR-2.1`). |
 | **Audit Log Coverage** | $100\%$ coverage of actions with origin metadata | Log audit parser verifying `automation_source` fields in BigQuery (`FR-1.2`, `NFR-1.2`). |
-
----
-
-## **9.2. Complete BRD Requirement Traceability Matrix**
-
-| BRD Requirement ID | BRD Requirement Name | SDD Section & Component Mapping | Compliance Status |
-| :--- | :--- | :--- | :--- |
-| **FR-1.1** | Capability & Lifecycle Governance | Section 1.2, 5.1 (FastMCP Tool boundaries) | Fully Addressed |
-| **FR-1.2** | Verification of Request Origin | Section 4.3, 5.1 (`automation_source` logging) | Fully Addressed |
-| **FR-1.3** | Verification of Conversation Safety | Section 1.3, 4.3 (Google Cloud Model Armor) | Fully Addressed |
-| **FR-1.4** | Data Masking / Redaction | Section 4.3 (Model Armor SPII Redaction) | Fully Addressed |
-| **FR-1.5** | RBAC and Data Isolation | Section 4.2 (Employee ID Context Tenant Isolation) | Fully Addressed |
-| **FR-2.1** | Natural Language Understanding | Section 3.1 (Supervisor Agent Intent Classifier) | Fully Addressed |
-| **FR-2.2** | Multi-Turn Dialog | Section 1.3, 1.4 (Agent Runtime Session Service) | Fully Addressed |
-| **FR-3.1** | Delegated Authorization | Section 4.1 (`X-MCP-Token` + `employee_id`) | Fully Addressed |
-| **FR-3.2** | WorkWeek Core Actions | Section 5.1 (WorkWeek FastMCP Tool Specs) | Fully Addressed |
-| **FR-3.3** | WorkWeek Operation Guardrails | Section 5.1 (Balance, Date & Syntax Validation) | Fully Addressed |
-| **FR-3.4** | Real-time Data Fetch | Section 4.2, 5.1 (Zero Dynamic Profile Caching) | Fully Addressed |
-| **FR-4.1** | Auditable Ticket Creation | Section 4.3, 5.1 (`automation_source` Audit Logs) | Fully Addressed |
-| **FR-4.2** | ServiceImmediately Ticket Mgmt | Section 5.1 (`list_tickets`, `get_ticket_details`, `create_ticket`, `add_comment`, `update_status`) | Fully Addressed |
-| **FR-4.3** | ServiceImmediately Guardrails | Section 5.1 (State Machine, 5-min Duplication Window, Priority Verification) | Fully Addressed |
-| **FR-5.1** | Document Ingestion | Section 1.3, 1.4 (Vertex AI Search / Cloud Storage) | Fully Addressed |
-| **FR-5.2** | Grounded Answers | Section 3.2, 4.3 (Vertex RAG + Model Armor Check) | Fully Addressed |
-| **FR-5.3** | Source Citation | Section 3.2, 5.1 (Clickable Deep-Link Citations) | Fully Addressed |
-| **FR-5.4** | Policy Retrieval Guardrails | Section 4.3 (Domain Containment & Grounding) | Fully Addressed |
-| **FR-5.5** | Document Sync Latency | Section 2, 8 (15-Minute Sync SLA Trigger) | Fully Addressed |
-| **NFR-1.1** | Safety for AI Interactions | Section 4.3 (Model Armor Input/Output Guard) | Fully Addressed |
-| **NFR-1.2** | Audit Logging | Section 4.3, 9.1 (100% BigQuery Audit Logs) | Fully Addressed |
-| **NFR-1.3** | Compliance Adherence | Section 4.2, 4.3 (GDPR SPII Redaction & Isolation) | Fully Addressed |
-| **NFR-2.1** | Latency | Section 1.4, 9.1 ($< 10\text{s}$ total, $< 300\text{ms}$ safety) | Fully Addressed |
-| **NFR-2.2** | Availability | Section 2 (Google Cloud Run Auto-scaling 99.9%) | Fully Addressed |
-| **NFR-2.3** | Asynchronous Processing | Section 3.1, 8 (`asyncio.gather` tool calling) | Fully Addressed |
-| **NFR-3.1** | Accuracy Rate | Section 9.1 ($\ge 95\%$ benchmark accuracy) | Fully Addressed |
-| **NFR-4.1** | Graceful Failure Handling | Section 5.2 (Non-technical fallback messages) | Fully Addressed |
-| **NFR-4.2** | Transient Fault Tolerance | Section 5.2 (Exponential Backoff Retries) | Fully Addressed |
-| **NFR-4.3** | Orchestration Consistency | Section 5.2 (Tracking Reference Logs & Follow-up) | Fully Addressed |
-| **UC-1.1** | Policy Q&A Use Case | Section 3.2 (UC-1.1 Sequence Flow) | Fully Addressed |
-| **UC-1.2** | HR Self-Service Use Case | Section 3.2 (UC-1.2 Sequence Flow) | Fully Addressed |
-| **UC-1.3** | IT Incident Use Case | Section 3.2 (UC-1.3 Sequence Flow) | Fully Addressed |
-| **UC-2.1** | Equipment Procurement Use Case | Section 3.2 (UC-2.1 Sequence Flow) | Fully Addressed |
-| **UC-2.2** | Medical Leave Use Case | Section 3.2 (UC-2.2 Sequence Flow) | Fully Addressed |
-| **UC-2.3** | Relocation Use Case | Section 3.2 (UC-2.3 Sequence Flow) | Fully Addressed |
 
 ---
 
