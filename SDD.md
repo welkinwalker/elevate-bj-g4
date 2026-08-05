@@ -16,7 +16,7 @@
 | Version | Date | Author | Description of Change |
 | :---- | :---- | :---- | :---- |
 | 0.1 | 2026-08-05 | Solution Architecture Team | Initial outline setup |
-| 1.0 | 2026-08-05 | Solution Architecture Team | Complete MVP 1 design incorporating FastMCP integration specs from `openapi.json` |
+| 1.0 | 2026-08-05 | Solution Architecture Team | Complete MVP 1 design incorporating FastMCP integration specs from `enterprise_services_openapi.json` |
 | 1.1 | 2026-08-05 | Solution Architecture Team | Incorporated confirmed architectural selections: Google Cloud Model Armor, Vertex AI Search RAG, and Agent Platform Agent Runtime Session Service |
 
 ---
@@ -68,7 +68,7 @@ graph TD
         Supervisor -->|ServiceImmediately MCP| ServiceMCP["ServiceImmediately FastMCP Server"]
     end
 
-    subgraph Backend["Enterprise Backend Services (openapi.json)"]
+    subgraph Backend["Enterprise Backend Services (enterprise_services_openapi.json)"]
         PolicyAgent -->|Semantic Search| PolicyKB[("Vertex AI Agent Builder Policy Index")]
         WorkWeekMCP -->|Streamable HTTP /work-week/mcp/| WWBackend[("WorkWeek HCM System")]
         ServiceMCP -->|Streamable HTTP /service-immediately/mcp/| SIMBackend[("ServiceImmediately ITSM System")]
