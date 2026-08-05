@@ -19,10 +19,11 @@
 | 1.0 | 2026-08-05 | Solution Architecture Team | Complete MVP 1 design incorporating FastMCP integration specs from `enterprise_services_openapi.json` |
 | 1.1 | 2026-08-05 | Solution Architecture Team | Incorporated confirmed architectural selections: Google Cloud Model Armor, Vertex AI Search RAG, and Agent Platform Agent Runtime Session Service |
 | 1.2 | 2026-08-05 | Solution Architecture Team | Added complete BRD Requirement Traceability Matrix, all Use Case sequence flows (UC-1.1 through UC-2.3), and zero-caching real-time fetch specifications |
+| 1.3 | 2026-08-05 | Solution Architecture Team | Refined design per stakeholder feedback (Alex Rivera, IT Director & Maria Santos, DPO): added rate-limiting specs, DR failover, OBO token revocation, RBAC matrix, GDPR Art. 17 purging, pre-LLM PII masking, ERD data models, FinOps cost formulas, and IaC/CICD pipeline |
 
 ---
 
-# **1. Executive Summary & Scope Boundaries**
+# **1\. Executive Summary & Scope Boundaries**
 
 ## **1.1. Business Overview & Context**
 Enterprise employees currently experience friction and high turnaround times when navigating disconnected backend UIs (WorkWeek for HCM, ServiceImmediately for ITSM) and static HR policy repositories. Simultaneously, HR and IT helpdesks face significant Tier 1 ticket loads for routine queries. 
@@ -90,17 +91,29 @@ graph TD
 
 ---
 
-# **2. Production-Ready Future State Design**
+# **2\. Production-Ready Future State Design**
 
-The production target architecture expands MVP 1 into a highly scalable, enterprise-grade deployment:
-1. **Identity & Auth Federation**: Transition from `X-MCP-Token` header authentication to Enterprise SSO (Okta / Entra ID) via Google Cloud Identity-Aware Proxy (IAP), automatically injecting `x-goog-authenticated-user-email` headers.
-2. **Multi-Tenancy & Fleet Management**: Scale MCP server instances using Google Cloud Run with auto-scaling (0-100 instances), registered in Agent Registry for enterprise fleet management.
-3. **Dynamic Knowledge Base Sync**: Automated Cloud Storage event triggers triggering Document AI and Vertex AI Search indexing for sub-15 minute document sync SLAs (`FR-5.5`).
-4. **Asynchronous Streaming**: Implement Server-Sent Events (SSE) / WebSockets for real-time response streaming to reduce perceived latency below $1.5\text{s}$.
+The production target architecture expands MVP 1 into a highly scalable, enterprise-grade deployment addressing enterprise federation, token lifecycles, and disaster recovery.
+
+## **2.1. Identity, Auth Federation & OBO Token Revocation Lifecycle**
+* **SSO Integration**: Transition from static Service PATs to Enterprise SSO (Okta / Entra ID) via Google Cloud Identity-Aware Proxy (IAP), injecting signed OAuth 2.0 / OBO (On-Behalf-Of) tokens into `x-goog-authenticated-user-email` and `Authorization: Bearer <token>` headers.
+* **Token Revocation Path**: FastMCP servers subscribe to the Identity Provider's token revocation endpoint (`POST /oauth2/revoke`) and maintain a local in-memory Token Revocation List (TRL) cached via Google Cloud Memorystore (Redis).
+* **Revocation Sync SLA**: Token revocation events propagate across all FastMCP worker nodes within $\le 30\text{ seconds}$.
+* **Session Invalidation**: Upon receipt of a revocation event, the Agent Runtime Session Service immediately terminates the associated `UserSession` and purges active context.
+
+## **2.2. Disaster Recovery & Multi-Region Session Resilience**
+* **Dual-Region Deployment**: Agent Platform Agent Runtime and Agent Runtime Session Service deploy across primary region `us-central1` (Iowa) and secondary standby region `us-east4` (Northern Virginia).
+* **Asynchronous State Replication**: Session state objects are replicated asynchronously across regions via Spanner / Firestore multi-region database tables with target RPO $< 1.0\text{ minute}$.
+* **Health Check & Failover**: Google Cloud HTTP(S) Load Balancer continuously monitors primary region health via synthetic `/healthz` endpoints. Automatic DNS failover switches traffic to `us-east4` within RTO $< 5.0\text{ minutes}$ during a regional outage.
+
+## **2.3. Fleet Management & Asynchronous Streaming**
+* **Auto-Scaling**: FastMCP Cloud Run services auto-scale dynamically from 0 to 100 instances based on HTTP concurrency thresholds ($>80$ concurrent requests).
+* **Agent Registry**: All deployed agents register in Google Cloud Agent Registry for central governance, version tracking, and blue/green deployments.
+* **Server-Sent Events (SSE)**: Implement SSE streaming over HTTP/2 to stream LLM response tokens directly to the Chat UI, reducing perceived latency below $1.5\text{s}$.
 
 ---
 
-# **3. System Flows, Sequence Diagrams & Agent Design**
+# **3\. System Flows, Sequence Diagrams & Agent Design**
 
 ## **3.1. Agent Design**
 The core system uses a **Supervisor Agent** running on Agent Runtime, orchestrating three specialized tool sets:
@@ -236,9 +249,84 @@ sequenceDiagram
     Agent-->>Employee: "Relocation allowance quoted ($5,000 max). Address updated in WorkWeek and building badge ticket INC-98255 created."
 ```
 
+## **3.3. Entity Relationship Diagram (ERD) & Data Models**
+
+```mermaid
+erDiagram
+    USER_SESSION ||--o{ CONVERSATION_TURN : contains
+    CONVERSATION_TURN ||--o{ TOOL_INVOCATION_LOG : triggers
+    USER_SESSION }|..|| EMPLOYEE_PROFILE : resolves
+    TOOL_INVOCATION_LOG }|..o{ INCIDENT_TICKET : mutates
+
+    USER_SESSION {
+        string session_id PK
+        string employee_id FK
+        string state "ACTIVE | ARCHIVED | PURGED"
+        timestamp created_at
+        timestamp last_active_at
+    }
+
+    CONVERSATION_TURN {
+        string turn_id PK
+        string session_id FK
+        string user_prompt_masked
+        string agent_response
+        float turn_latency_ms
+        timestamp timestamp
+    }
+
+    TOOL_INVOCATION_LOG {
+        string log_id PK
+        string turn_id FK
+        string mcp_server "WorkWeek | ServiceImmediately | VertexRAG"
+        string tool_name
+        json request_payload
+        json response_payload
+        int status_code
+        timestamp execution_time
+    }
+
+    EMPLOYEE_PROFILE {
+        string employee_id PK
+        string email
+        string department
+        string work_location
+    }
+
+    INCIDENT_TICKET {
+        string ticket_id PK
+        string requested_by FK
+        string category
+        string status "New | In Progress | Resolved | Closed"
+    }
+```
+
+### **Session & Conversation JSON Schemas**
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "UserSessionSchema",
+  "type": "object",
+  "properties": {
+    "session_id": { "type": "string", "format": "uuid" },
+    "employee_id": { "type": "string", "pattern": "^EMP-[0-9]{4,8}$" },
+    "session_state": { "type": "string", "enum": ["ACTIVE", "ARCHIVED", "PURGED"] },
+    "created_at": { "type": "string", "format": "date-time" },
+    "ttl_expiration": { "type": "string", "format": "date-time" }
+  },
+  "required": ["session_id", "employee_id", "session_state", "created_at"]
+}
+```
+
+## **3.4. Session State Retention & Archiving Lifecycle**
+* **Active State (0 – 24 Hours)**: Session memory persisted in high-speed Agent Runtime Session Service for real-time multi-turn conversation context.
+* **Archived State (24 Hours – 30 Days)**: Completed sessions automatically transition to Cloud Storage Nearline bucket as encrypted JSON objects for auditability.
+* **Coldline Backup (30 Days – 90 Days)**: Transferred to Cloud Storage Coldline storage tier for cost-optimized compliance retention.
+* **Purge State (> 90 Days or Post-Offboarding)**: Automated Lifecycle Management rule executes hard deletion of session objects. Offboarded employee sessions are hard-purged within $\le 24\text{ hours}$.
+
 ---
 
-# **4. Security, Governance & Identity**
+# **4\. Security, Governance & Identity**
 
 ## **4.1. Authentication Boundaries**
 In production, backend services bypass IAP and require a custom **Personal Access Token (PAT)** header to satisfy Google Frontend (GFE) proxy requirements:
@@ -289,9 +377,52 @@ graph LR
 3. **Data Masking (`FR-1.4`)**: Model Armor redacts SSNs, phone numbers, and addresses from log files and history.
 4. **Audit Logging (`FR-1.2`, `NFR-1.2`, `FR-4.1`)**: Logs all tool calls with `automation_source: "Agentic_HR_Assistant"`, caller ID, execution status, and timestamp.
 
+## **4.4. Role-Based Access Control (RBAC) Matrix**
+
+| User Role | Vertex RAG Policy Search | WorkWeek: Read Profile/Balance | WorkWeek: Request/Cancel Leave | WorkWeek: Update Contact Info | ServiceImmediately: Query Tickets | ServiceImmediately: Create Ticket | ServiceImmediately: Update/Close Ticket |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **Standard Employee** | ✅ Allowed | ✅ Self Only | ✅ Self Only | ✅ Self Only | ✅ Self Only | ✅ Self Only | ❌ Denied |
+| **Contractor** | ✅ Allowed | ✅ Self Only | ❌ Denied | ❌ Denied | ✅ Self Only | ✅ Self Only | ❌ Denied |
+| **HR Specialist** | ✅ Allowed | ✅ All Employees | ✅ Approved Scope | ✅ Approved Scope | ✅ Self Only | ✅ Self Only | ❌ Denied |
+| **IT Administrator** | ✅ Allowed | ✅ Self Only | ❌ Denied | ❌ Denied | ✅ All Tickets | ✅ Allowed | ✅ Allowed |
+
+* **Role Revocation Sync Strategy**: User roles sync continuously from Okta / Enterprise Directory into Google Cloud IAM and FastMCP authorization cache via SCIM webhooks.
+* **Maximum Sync Delay**: Role revocations or status changes (e.g. suspension, resignation) propagate within $\le 60\text{ seconds}$, instantly blocking subsequent tool execution.
+
+## **4.5. Pre-LLM PII/SPII Masking Pipeline**
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant MA_Pre as Model Armor Pre-Processor
+    participant Context as Prompt Assembler
+    participant LLM as Agent LLM (Gemini)
+    participant MA_Post as Model Armor Post-Processor
+
+    User->>MA_Pre: Raw Prompt ("My SSN is 000-12-3456, update my phone to 555-0199")
+    MA_Pre->>MA_Pre: Detect SPII (SSN, Phone, Address, Personal Email)
+    MA_Pre-->>Context: Sanitized Prompt ("My SSN is [SSN_REDACTED], update my phone to [PHONE_REDACTED]")
+    Context->>LLM: Formatted Prompt with System Context
+    LLM-->>MA_Post: Model Response Output
+    MA_Post->>MA_Post: Toxicity, Jailbreak & Unmasked Data Filter
+    MA_Post-->>User: Safe Final Output Presentation
+```
+
+## **4.6. Data Retention & Right to be Forgotten (GDPR Art. 17) Purging Policy**
+* **Offboarding Event Trigger**: When an employee is marked offboarded in WorkWeek HCM, an automated Cloud Pub/Sub event (`employee.offboarded`) triggers the Data Governance Erasure Service.
+* **Purge Execution ($\le 24$ Hours)**:
+  1. **Session Memory**: Hard-deletes all multi-turn conversation histories in Agent Runtime Session Service matching `employee_id`.
+  2. **Vector Metadata**: Scans Vertex AI Search policy index and user profile vector stores to purge employee-specific embeddings.
+  3. **Log Anonymization**: Converts `employee_id` in BigQuery audit logs into a non-reversible HMAC-SHA256 salted hash (`sha256(employee_id + salt)`), preserving operational metrics while stripping identity.
+* **Retention Schedule**:
+  * Active Session Memory: 24 hours.
+  * Nearline Archived Logs: 30 days.
+  * Anonymized Compliance Logs: 365 days.
+
 ---
 
-# **5. Integration Details & Error Handling**
+# **5\. Integration Details & Error Handling**
 
 ## **5.1. FastMCP Tool Specifications**
 
@@ -327,20 +458,81 @@ graph LR
 | **Invalid Ticket State Transition** | State machine violation | Agent catches state rule: *"Ticket INC-123 is Closed and cannot be updated."* (`FR-4.3`) |
 | **Partial Cross-System Failure** | Step 1 succeeds, Step 2 fails | Log failure with tracking reference ID (`NFR-4.3`). User notified: *"Leave request submitted in WorkWeek, but ticket creation in ServiceImmediately failed. Reference ID: LOG-8812. Please contact IT support."* |
 
+## **5.3. FastMCP Rate Limiting, Throttling & Retry Backoff Configurations**
+
+### **Throttling Thresholds**
+* **WorkWeek FastMCP Server**:
+  * System-wide peak limit: $50\text{ req/sec}$.
+  * User-level limit: $200\text{ req/min}$ per `employee_id`.
+* **ServiceImmediately FastMCP Server**:
+  * System-wide peak limit: $30\text{ req/sec}$.
+  * User-level limit: $100\text{ req/min}$ per `employee_id`.
+
+### **Client-Side Token Bucket & Backoff Formula**
+ADK agent HTTP callers enforce client-side rate limiting using the Token Bucket algorithm. When encountering a `429 Too Many Requests` or transient `5xx` error, requests retry using **Exponential Backoff with Full Jitter**:
+
+$$T_{\text{wait}} = \min\left(T_{\text{max}}, T_{\text{base}} \times 2^{\text{attempt}} + \text{rand}(0, \text{jitter})\right)$$
+
+Where parameters are configured as:
+* $T_{\text{base}} = 500\text{ms}$
+* $T_{\text{max}} = 8000\text{ms}$
+* $\text{jitter} = 250\text{ms}$
+* Maximum Retry Attempts = $3$
+
+## **5.4. 5xx Error Queuing & Async Resilience Mechanism**
+To protect backend enterprise services from overload during high-traffic spikes or maintenance windows:
+* **Circuit Breaker Pattern**: If a FastMCP server emits 5 consecutive `5xx` responses within a 30-second sliding window, the Circuit Breaker transitions to `OPEN` for 60 seconds, immediately returning a graceful fallback message without hammering the backend.
+* **Dead-Letter Queue (DLQ) & Asynchronous Queue**: Non-blocking asynchronous transactions (such as activity comment logging or badge request notifications) push failed requests to a Google Cloud Pub/Sub Dead-Letter Queue (`mcp-dlq-topic`). A background Cloud Run worker retries queued transactions asynchronously when backend health recovers.
+
+## **5.5. Schema Drift Monitoring & Alerting Strategy**
+* **JSON Schema Interceptor**: Every response returned by WorkWeek and ServiceImmediately FastMCP servers passes through an inline Pydantic / JSON Schema validation interceptor.
+* **Drift Detection**: Any unexpected field deletion, data type mutation, or breaking contract drift increments the Cloud Monitoring metric `custom.googleapis.com/mcp/schema_drift_count`.
+* **Automated Alerting**: A metric threshold rule triggers an automated High-Severity PagerDuty alert to the IT Integration Team when drift count $> 0$.
+* **Graceful Degradation**: The agent strips unparseable fields, logs the raw payload for audit, and renders a safe baseline view to the user.
+
 ---
 
-# **6. Cost Estimation & FinOps**
+# **6\. Cost Estimation & FinOps**
 
-| Variable | Cost Driver | Optimization Strategy |
-| :--- | :--- | :--- |
-| **Model Inference** | Gemini 3.5 / 3.6 Flash input/output token usage | Prompt caching for policy system prompts; concise system instructions. |
-| **Vector Search** | Vertex AI Search document indexing | Chunk size optimization; hybrid search index. |
-| **MCP Compute** | Cloud Run CPU/Memory per HTTP request | Scale-to-zero Cloud Run instances during off-peak hours. |
-| **Safety Interceptor** | Google Cloud Model Armor API calls | Single-pass evaluation pipeline per conversation turn. |
+## **6.1. FinOps Cost Formulas & Model Assumptions**
+
+### **1. Model Inference Cost Formula ($C_{\text{LLM}}$)**
+$$C_{\text{LLM}} = U_{\text{session}} \times N_{\text{turn}} \times \left( \frac{T_{\text{in}}}{1,000,000} \cdot P_{\text{in}} + \frac{T_{\text{out}}}{1,000,000} \cdot P_{\text{out}} \right)$$
+* $P_{\text{in}} = \$0.075 / 1\text{M tokens}$ (Gemini Flash input pricing).
+* $P_{\text{out}} = \$0.30 / 1\text{M tokens}$ (Gemini Flash output pricing).
+* Baseline assumption: Average 3 turns per session; $T_{\text{in}} = 1,500$ tokens/turn; $T_{\text{out}} = 300$ tokens/turn.
+
+### **2. Vector Search RAG Cost Formula ($C_{\text{RAG}}$)**
+$$C_{\text{RAG}} = Q_{\text{search}} \times P_{\text{search}}$$
+* $P_{\text{search}} = \$2.50 / 1,000\text{ queries}$.
+
+### **3. Safety Interceptor Cost Formula ($C_{\text{Armor}}$)**
+$$C_{\text{Armor}} = N_{\text{turns}} \times P_{\text{Armor}}$$
+* $P_{\text{Armor}} = \$0.10 / 1,000\text{ inspection calls}$.
+
+### **4. FastMCP Compute Cost Formula ($C_{\text{Compute}}$)**
+$$C_{\text{Compute}} = (\text{vCPU-hours} \times \$0.024) + (\text{GB-hours} \times \$0.0025)$$
 
 ---
 
-# **7. Deployment & Delivery Plan**
+## **6.2. 10,000 Monthly Active Users (MAU) Cost Projections**
+*Assumptions: 10,000 MAU $\times$ 3 sessions/month $\times$ 3 turns/session = **90,000 conversation turns/month** (~30,000 policy search queries).*
+
+| Cost Component | Monthly Volume | Unit Cost | Total Monthly Cost |
+| :--- | :--- | :--- | :--- |
+| **Gemini Flash Token Inference** | 135M Input Tokens / 27M Output Tokens | $\$0.075 / 1\text{M}$ In; $\$0.30 / 1\text{M}$ Out | $\$18.23$ |
+| **Vertex AI Search (RAG Queries)** | 30,000 Queries | $\$2.50 / 1,000\text{ queries}$ | $\$75.00$ |
+| **Google Cloud Model Armor** | 90,000 Inspections | $\$0.10 / 1,000\text{ inspections}$ | $\$9.00$ |
+| **Cloud Run FastMCP Compute** | 50 vCPU-hrs / 100 GB-hrs | Minimum tier scale-to-zero | $\$1.45$ |
+| **Agent Runtime Session Service** | 30,000 Active Sessions | Included in Agent Platform tier | $\$0.00$ |
+| **Cloud Logging & BigQuery Audit** | 5 GB Log Storage | $\$0.50 / \text{GB}$ | $\$2.50$ |
+| **TOTAL ESTIMATED MONTHLY COST** | **10,000 MAU / 90k Turns** | **Overall Cost per MAU: $\approx \$0.0106$** | **$\$106.18 / \text{month}$** |
+
+---
+
+# **7\. Deployment & Delivery Plan**
+
+## **7.1. Phased Delivery Roadmap**
 
 ```mermaid
 gantt
@@ -359,9 +551,43 @@ gantt
     Production Deployment & Rollout       :2026-09-02, 3d
 ```
 
+## **7.2. CI/CD Environment Promotion Pipeline**
+
+```mermaid
+graph LR
+    Commit[Git Push / PR] --> LintScan[1. Static Analysis & Bandit Security Scan]
+    LintScan --> FastMCPTest[2. FastMCP Tool Contract & Unit Tests]
+    FastMCPTest --> InjectTest[3. Model Armor Injection Benchmark (100 vectors)]
+    InjectTest --> DeployDev[4. Deploy to Dev Environment]
+    DeployDev --> StagingGate{5. Staging Gate: 100% Pass}
+    StagingGate -->|Approved| Canary[6. Canary Deployment (10% Traffic)]
+    Canary --> Prod[7. Full Production Deployment]
+```
+
+* **Automated Quality Gates**:
+  1. Zero high/critical Bandit / Semgrep static analysis vulnerabilities.
+  2. 100% pass rate on FastMCP tool contract tests (`pytest`).
+  3. 100% detection rate on Model Armor prompt injection regression test suite.
+
+## **7.3. Infrastructure as Code (IaC) Terraform Repository Structure**
+
+```
+terraform/
+├── modules/
+│   ├── agent_runtime/         # Agent Platform, Session Service, Supervisor Agent
+│   ├── model_armor/           # Model Armor Templates, Prompt Injection & PII Rules
+│   ├── fast_mcp_servers/      # Cloud Run WorkWeek & ServiceImmediately Services
+│   ├── vertex_search/         # Vertex AI Agent Builder Policy Store & Data Stores
+│   └── networking_security/   # IAP, Cloud Armor, Service Accounts & KMS Keys
+└── environments/
+    ├── dev/                   # Development environment backend config & variables
+    ├── staging/               # Staging environment config with canary rules
+    └── prod/                  # Production multi-region deployment terraform state
+```
+
 ---
 
-# **8. Assumptions, Constraints, Risk & Mitigations**
+# **8\. Assumptions, Constraints, Risk & Mitigations**
 
 | Category | Risk / Constraint | Mitigation Strategy |
 | :--- | :--- | :--- |
@@ -372,7 +598,7 @@ gantt
 
 ---
 
-# **9. Quality Evaluation & UAT Framework**
+# **9\. Quality Evaluation & UAT Framework**
 
 | Evaluation Category | Target Metric / Benchmark | Verification Method |
 | :--- | :--- | :--- |
@@ -384,7 +610,7 @@ gantt
 
 ---
 
-# **10. Confirmed Design Choices & Decisions**
+# **10\. Assumptions / Open Questions**
 
 | # | Topic / Question | Confirmed Architecture Selection | Status |
 | :- | :--- | :--- | :--- |
