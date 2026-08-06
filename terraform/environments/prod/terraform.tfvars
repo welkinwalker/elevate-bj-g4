@@ -1,0 +1,5 @@
+project_id       = "gcp-elevate-prod"
+primary_region   = "us-central1"
+secondary_region = "us-east4"
+environment      = "prod"
+gemini_model     = "gemini-2.5-flash"

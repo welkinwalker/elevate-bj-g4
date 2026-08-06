@@ -1,7 +1,9 @@
 """Unit and Integration Tests for Project Elevate Agent.
 
 Tests all requirements defined in SDD.md and BRD.md:
-- Model Armor Guardrails (FR-1.3, FR-1.4, NFR-1.1)
+- Model Armor Guardrails: Injection, SSN, and Phone Redaction (FR-1.3, FR-1.4, NFR-1.1)
+- Multi-Tenant RBAC & Session Context Switching (FR-1.5, FR-3.1)
+- Dynamic Supervisor Prompt Generation (SDD 3.1)
 - WorkWeek HCM Toolset (FR-3.1, FR-3.2, FR-3.3, FR-3.4)
 - ServiceImmediately ITSM Toolset (FR-4.1, FR-4.2, FR-4.3)
 - Policy RAG Grounding & Citations (FR-5.2, FR-5.3, FR-5.4)
@@ -10,6 +12,7 @@ Tests all requirements defined in SDD.md and BRD.md:
 
 import pytest
 from agent.guardrails import ModelArmorGuard
+from agent.prompt import build_supervisor_prompt, SUPERVISOR_PROMPT
 from agent.tools.workweek_tool import (
     get_current_employee_id,
     get_employee_balances,
@@ -17,6 +20,7 @@ from agent.tools.workweek_tool import (
     update_personal_info,
     get_personal_info,
     cancel_leave_request,
+    set_active_caller_context,
 )
 from agent.tools.serviceimmediately_tool import (
     list_tickets,
@@ -24,6 +28,7 @@ from agent.tools.serviceimmediately_tool import (
     create_ticket,
     add_ticket_comment,
     update_ticket_status,
+    set_active_caller_context as set_itsm_caller_context,
 )
 from agent.tools.rag_tool import vertex_search_policies
 from agent.agent import root_agent
@@ -42,13 +47,22 @@ def test_prompt_injection_interception():
     assert "Security Violation" in msg
 
 
-def test_spii_redaction_pipeline():
+def test_spii_redaction_pipeline_ssn():
     """Verify that Social Security Numbers are redacted before reaching the model."""
     prompt_with_ssn = "My SSN is 000-12-3456. Please update my file."
     is_safe, sanitized, _ = ModelArmorGuard.inspect_input(prompt_with_ssn)
     assert is_safe
     assert "[SSN_REDACTED]" in sanitized
     assert "000-12-3456" not in sanitized
+
+
+def test_spii_redaction_pipeline_phone():
+    """Verify that phone numbers are redacted via PHONE_PATTERN (FR-1.4)."""
+    prompt_with_phone = "My phone is (555) 839-2001 and mobile is +44 20 7946 0912."
+    is_safe, sanitized, _ = ModelArmorGuard.inspect_input(prompt_with_phone)
+    assert is_safe
+    assert "[PHONE_REDACTED]" in sanitized
+    assert "555" not in sanitized
 
 
 def test_rbac_isolation_check():
@@ -62,10 +76,47 @@ def test_rbac_isolation_check():
 
 
 # =============================================================================
-# 2. WorkWeek (HCM) Toolset Tests
+# 2. Multi-Tenant Dynamic Identity & Context Switching Tests
+# =============================================================================
+def test_dynamic_supervisor_prompt():
+    """Verify dynamic prompt generation without static identity hardcoding."""
+    prompt_maria = build_supervisor_prompt("EMP-1003", "Maria Santos")
+    assert "EMP-1003" in prompt_maria
+    assert "Maria Santos" in prompt_maria
+
+    prompt_alex = build_supervisor_prompt("EMP-1002", "Alex Taylor")
+    assert "EMP-1002" in prompt_alex
+
+    # Generic fallback prompt contains dynamic resolution instructions
+    generic_prompt = build_supervisor_prompt()
+    assert "Resolve caller identity dynamically" in generic_prompt
+
+
+def test_multi_tenant_session_switching():
+    """Verify multi-tenant context switching between employees."""
+    # Switch to EMP-1003 (Maria Santos)
+    set_active_caller_context("EMP-1003")
+    set_itsm_caller_context("EMP-1003")
+
+    identity = get_current_employee_id()
+    assert identity["employee_id"] == "EMP-1003"
+    assert identity["authenticated_as"] == "Maria Santos"
+
+    balances = get_employee_balances()
+    assert balances["employee_id"] == "EMP-1003"
+    assert balances["balances"]["vacation"]["remaining_days"] == 14.0
+
+    # Reset back to default EMP-1002 (Alex Taylor)
+    set_active_caller_context("EMP-1002")
+    set_itsm_caller_context("EMP-1002")
+
+
+# =============================================================================
+# 3. WorkWeek (HCM) Toolset Tests
 # =============================================================================
 def test_get_employee_balances():
     """Verify real-time leave balance retrieval for authenticated employee."""
+    set_active_caller_context("EMP-1002")
     res = get_employee_balances("EMP-1002")
     assert res["status"] == "success"
     assert res["balances"]["vacation"]["remaining_days"] == 5.0
@@ -74,6 +125,7 @@ def test_get_employee_balances():
 
 def test_workweek_rbac_rejection():
     """Verify 403 Forbidden when querying another employee's balance."""
+    set_active_caller_context("EMP-1002")
     res = get_employee_balances("EMP-9988")
     assert res["status"] == "error"
     assert res["error_code"] == "403_FORBIDDEN"
@@ -81,6 +133,7 @@ def test_workweek_rbac_rejection():
 
 def test_request_time_off_chronology_validation():
     """Verify rejection when start date is after end date (FR-3.3)."""
+    set_active_caller_context("EMP-1002")
     res = request_time_off(
         employee_id="EMP-1002",
         start_date="2026-08-20",
@@ -94,6 +147,7 @@ def test_request_time_off_chronology_validation():
 
 def test_request_time_off_insufficient_balance():
     """Verify rejection when requested days exceed available balance (FR-3.3)."""
+    set_active_caller_context("EMP-1002")
     res = request_time_off(
         employee_id="EMP-1002",
         start_date="2026-09-01",
@@ -107,6 +161,7 @@ def test_request_time_off_insufficient_balance():
 
 def test_request_time_off_success_and_deduction():
     """Verify successful PTO booking and balance mutation."""
+    set_active_caller_context("EMP-1002")
     initial = get_employee_balances("EMP-1002")["balances"]["vacation"]["remaining_days"]
     res = request_time_off(
         employee_id="EMP-1002",
@@ -121,6 +176,7 @@ def test_request_time_off_success_and_deduction():
 
 def test_update_personal_info_validation():
     """Verify validation on address length and phone format."""
+    set_active_caller_context("EMP-1002")
     # Too short address
     bad_res = update_personal_info("EMP-1002", "St", "+442079460912")
     assert bad_res["status"] == "error"
@@ -131,10 +187,11 @@ def test_update_personal_info_validation():
 
 
 # =============================================================================
-# 3. ServiceImmediately (ITSM) Toolset Tests
+# 4. ServiceImmediately (ITSM) Toolset Tests
 # =============================================================================
 def test_create_and_get_ticket():
     """Verify ticket creation and detail retrieval."""
+    set_itsm_caller_context("EMP-1002")
     res = create_ticket(
         requested_by="EMP-1002",
         category="IT / Hardware",
@@ -152,6 +209,7 @@ def test_create_and_get_ticket():
 
 def test_duplicate_ticket_mitigation():
     """Verify that identical tickets within 5 minutes are mitigated (FR-4.3)."""
+    set_itsm_caller_context("EMP-1002")
     res1 = create_ticket(
         requested_by="EMP-1002",
         category="Network",
@@ -170,7 +228,7 @@ def test_duplicate_ticket_mitigation():
 
 def test_itil_state_machine_transitions():
     """Verify valid and invalid ticket state transitions (FR-4.3)."""
-    # Create ticket (State: New)
+    set_itsm_caller_context("EMP-1002")
     ticket = create_ticket(
         requested_by="EMP-1002",
         category="IT",
@@ -195,7 +253,7 @@ def test_itil_state_machine_transitions():
 
 
 # =============================================================================
-# 4. Policy Knowledge Base (RAG) Tests
+# 5. Policy Knowledge Base (RAG) Tests
 # =============================================================================
 def test_vertex_search_policies_bereavement():
     """Verify policy lookup with deep-link citation generation (FR-5.3)."""
@@ -216,7 +274,7 @@ def test_vertex_search_policies_unrelated():
 
 
 # =============================================================================
-# 5. Root Agent Instantiation
+# 6. Root Agent Instantiation
 # =============================================================================
 def test_root_agent_configuration():
     """Verify ADK Supervisor root agent configuration and tool registration."""

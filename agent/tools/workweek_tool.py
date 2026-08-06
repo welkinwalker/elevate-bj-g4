@@ -20,6 +20,7 @@ from ..guardrails import ModelArmorGuard
 # =============================================================================
 class WorkWeekStateStore:
     def __init__(self):
+        self.current_caller_id = config.DEFAULT_EMPLOYEE_ID
         self.employees = {
             "EMP-1002": {
                 "employee_id": "EMP-1002",
@@ -58,7 +59,36 @@ class WorkWeekStateStore:
                         "status": "Approved",
                     }
                 ],
-            }
+            },
+            "EMP-1003": {
+                "employee_id": "EMP-1003",
+                "name": "Maria Santos",
+                "email": "maria.santos@company.internal",
+                "department": "People Operations",
+                "role": "Senior HR Operations Specialist",
+                "work_location": "Singapore (Onsite)",
+                "manager": "Liam Chen (Director of People Operations)",
+                "hire_date": "2022-06-01",
+                "address": "88 Marina Bay Blvd, Singapore",
+                "phone": "+65 6789 0123",
+                "leave_balances": {
+                    "vacation": {
+                        "category": "Vacation",
+                        "accrued_days": 18.0,
+                        "used_days": 4.0,
+                        "remaining_days": 14.0,
+                        "remaining_hours": 112.0,
+                    },
+                    "sick": {
+                        "category": "Sick",
+                        "accrued_days": 14.0,
+                        "used_days": 0.0,
+                        "remaining_days": 14.0,
+                        "remaining_hours": 112.0,
+                    },
+                },
+                "leave_requests": [],
+            },
         }
         self.next_request_id = 501
 
@@ -69,38 +99,48 @@ class WorkWeekStateStore:
 _store = WorkWeekStateStore()
 
 
+def set_active_caller_context(employee_id: str):
+    """Sets active caller context for multi-tenant sessions."""
+    _store.current_caller_id = employee_id
+
+
 # =============================================================================
 # WorkWeek Tools (ADK & FastMCP Callable)
 # =============================================================================
 def get_current_employee_id() -> Dict[str, Any]:
     """Resolves the employee ID of the currently authenticated user session."""
+    caller_id = _store.current_caller_id
+    emp = _store.get_employee(caller_id)
+    emp_name = emp["name"] if emp else "Unknown User"
     return {
         "status": "success",
-        "employee_id": config.DEFAULT_EMPLOYEE_ID,
-        "authenticated_as": "Alex Taylor",
+        "employee_id": caller_id,
+        "authenticated_as": emp_name,
     }
 
 
-def get_employee_balances(employee_id: str = "EMP-1002") -> Dict[str, Any]:
+def get_employee_balances(employee_id: Optional[str] = None) -> Dict[str, Any]:
     """Fetches remaining and used Vacation and Sick leave balances for an employee.
 
     Args:
-        employee_id: Employee ID (e.g. 'EMP-1002').
+        employee_id: Employee ID (e.g. 'EMP-1002'). If omitted, defaults to active session caller.
     """
+    target_id = employee_id or _store.current_caller_id
+
     # 1. RBAC Isolation Check
     allowed, rbac_msg = ModelArmorGuard.check_rbac_isolation(
-        config.DEFAULT_EMPLOYEE_ID, employee_id
+        _store.current_caller_id, target_id
     )
     if not allowed:
         return {"status": "error", "error_code": "403_FORBIDDEN", "message": rbac_msg}
 
     # 2. Query State
-    emp = _store.get_employee(employee_id)
+    emp = _store.get_employee(target_id)
     if not emp:
         return {
             "status": "error",
             "error_code": "404_NOT_FOUND",
-            "message": f"Employee {employee_id} not found in WorkWeek HCM.",
+            "message": f"Employee {target_id} not found in WorkWeek HCM.",
         }
 
     vacation = emp["leave_balances"]["vacation"]
@@ -108,7 +148,7 @@ def get_employee_balances(employee_id: str = "EMP-1002") -> Dict[str, Any]:
 
     return {
         "status": "success",
-        "employee_id": employee_id,
+        "employee_id": target_id,
         "balances": {
             "vacation": {
                 "accrued_days": vacation["accrued_days"],
@@ -148,7 +188,7 @@ def request_time_off(
     """
     # 1. RBAC Isolation Check
     allowed, rbac_msg = ModelArmorGuard.check_rbac_isolation(
-        config.DEFAULT_EMPLOYEE_ID, employee_id
+        _store.current_caller_id, employee_id
     )
     if not allowed:
         return {"status": "error", "error_code": "403_FORBIDDEN", "message": rbac_msg}
@@ -217,7 +257,7 @@ def request_time_off(
         "leave_type": norm_type,
         "days": days,
         "status": "Approved",
-        "submitted_at": datetime.datetime.utcnow().isoformat() + "Z",
+        "submitted_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
     }
     emp["leave_requests"].append(record)
 
@@ -247,7 +287,7 @@ def update_personal_info(employee_id: str, address: str, phone: str) -> Dict[str
     """
     # 1. RBAC Check
     allowed, rbac_msg = ModelArmorGuard.check_rbac_isolation(
-        config.DEFAULT_EMPLOYEE_ID, employee_id
+        _store.current_caller_id, employee_id
     )
     if not allowed:
         return {"status": "error", "error_code": "403_FORBIDDEN", "message": rbac_msg}
@@ -286,25 +326,27 @@ def update_personal_info(employee_id: str, address: str, phone: str) -> Dict[str
     }
 
 
-def get_personal_info(employee_id: str = "EMP-1002") -> Dict[str, Any]:
+def get_personal_info(employee_id: Optional[str] = None) -> Dict[str, Any]:
     """Fetches employee profile work details, home address, and contact number.
 
     Args:
-        employee_id: Employee ID (e.g. 'EMP-1002')
+        employee_id: Employee ID (e.g. 'EMP-1002'). If omitted, defaults to active session caller.
     """
+    target_id = employee_id or _store.current_caller_id
+
     allowed, rbac_msg = ModelArmorGuard.check_rbac_isolation(
-        config.DEFAULT_EMPLOYEE_ID, employee_id
+        _store.current_caller_id, target_id
     )
     if not allowed:
         return {"status": "error", "error_code": "403_FORBIDDEN", "message": rbac_msg}
 
-    emp = _store.get_employee(employee_id)
+    emp = _store.get_employee(target_id)
     if not emp:
-        return {"status": "error", "error_code": "404_NOT_FOUND", "message": f"Employee {employee_id} not found."}
+        return {"status": "error", "error_code": "404_NOT_FOUND", "message": f"Employee {target_id} not found."}
 
     return {
         "status": "success",
-        "employee_id": employee_id,
+        "employee_id": target_id,
         "name": emp["name"],
         "email": emp["email"],
         "department": emp["department"],
@@ -324,7 +366,7 @@ def cancel_leave_request(employee_id: str, request_id: int) -> Dict[str, Any]:
         request_id: Numeric leave request ID to cancel
     """
     allowed, rbac_msg = ModelArmorGuard.check_rbac_isolation(
-        config.DEFAULT_EMPLOYEE_ID, employee_id
+        _store.current_caller_id, employee_id
     )
     if not allowed:
         return {"status": "error", "error_code": "403_FORBIDDEN", "message": rbac_msg}

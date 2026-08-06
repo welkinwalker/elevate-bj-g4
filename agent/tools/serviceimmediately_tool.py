@@ -18,6 +18,7 @@ from ..guardrails import ModelArmorGuard
 # =============================================================================
 class ServiceImmediatelyStateStore:
     def __init__(self):
+        self.current_caller_id = config.DEFAULT_EMPLOYEE_ID
         self.tickets: Dict[str, Dict[str, Any]] = {
             "INC123456": {
                 "ticket_id": "INC123456",
@@ -66,17 +67,24 @@ class ServiceImmediatelyStateStore:
 _store = ServiceImmediatelyStateStore()
 
 
+def set_active_caller_context(employee_id: str):
+    """Sets active caller context for multi-tenant sessions."""
+    _store.current_caller_id = employee_id
+
+
 # =============================================================================
 # ServiceImmediately Tools (ADK & FastMCP Callable)
 # =============================================================================
-def list_tickets(employee_id: str = "EMP-1002") -> Dict[str, Any]:
+def list_tickets(employee_id: Optional[str] = None) -> Dict[str, Any]:
     """Lists all active and historical incident tickets requested by the employee.
 
     Args:
-        employee_id: Employee ID (e.g. 'EMP-1002')
+        employee_id: Employee ID (e.g. 'EMP-1002'). If omitted, defaults to active session caller.
     """
+    target_id = employee_id or _store.current_caller_id
+
     allowed, rbac_msg = ModelArmorGuard.check_rbac_isolation(
-        config.DEFAULT_EMPLOYEE_ID, employee_id
+        _store.current_caller_id, target_id
     )
     if not allowed:
         return {"status": "error", "error_code": "403_FORBIDDEN", "message": rbac_msg}
@@ -91,12 +99,12 @@ def list_tickets(employee_id: str = "EMP-1002") -> Dict[str, Any]:
             "updated_at": t["updated_at"],
         }
         for t in _store.tickets.values()
-        if t["requested_by"] == employee_id
+        if t["requested_by"] == target_id
     ]
 
     return {
         "status": "success",
-        "employee_id": employee_id,
+        "employee_id": target_id,
         "count": len(user_tickets),
         "tickets": user_tickets,
     }
@@ -163,13 +171,13 @@ def create_ticket(
     """
     # 1. RBAC Check
     allowed, rbac_msg = ModelArmorGuard.check_rbac_isolation(
-        config.DEFAULT_EMPLOYEE_ID, requested_by
+        _store.current_caller_id, requested_by
     )
     if not allowed:
         return {"status": "error", "error_code": "403_FORBIDDEN", "message": rbac_msg}
 
     # 2. Duplicate Detection (5-min window on identical subject, BRD FR-4.3)
-    now_utc = datetime.datetime.utcnow()
+    now_utc = datetime.datetime.now(datetime.timezone.utc).isoformat()
     for t in _store.tickets.values():
         if (
             t["requested_by"] == requested_by
@@ -181,7 +189,7 @@ def create_ticket(
                 {
                     "author": requested_by,
                     "comment": f"Duplicate request submitted via chat: {short_description}",
-                    "timestamp": now_utc.isoformat() + "Z",
+                    "timestamp": now_utc,
                 }
             )
             return {
@@ -210,13 +218,13 @@ def create_ticket(
         "priority": priority,
         "state": "New",
         "assignment_group": assignment_group,
-        "created_at": now_utc.isoformat() + "Z",
-        "updated_at": now_utc.isoformat() + "Z",
+        "created_at": now_utc,
+        "updated_at": now_utc,
         "comments": [
             {
                 "author": f"Agentic_HR_Assistant (on behalf of {requested_by})",
                 "comment": f"Ticket created via Conversational Assistant. Description: {short_description}",
-                "timestamp": now_utc.isoformat() + "Z",
+                "timestamp": now_utc,
             }
         ],
         "resolution_notes": "",
@@ -257,7 +265,7 @@ def add_ticket_comment(
             "message": f"Ticket {ticket_id} is Closed and immutable. Comments cannot be added.",
         }
 
-    now_utc = datetime.datetime.utcnow().isoformat() + "Z"
+    now_utc = datetime.datetime.now(datetime.timezone.utc).isoformat()
     ticket["comments"].append({"author": author, "comment": comment, "timestamp": now_utc})
     ticket["updated_at"] = now_utc
 
@@ -323,7 +331,7 @@ def update_ticket_status(
             ),
         }
 
-    now_utc = datetime.datetime.utcnow().isoformat() + "Z"
+    now_utc = datetime.datetime.now(datetime.timezone.utc).isoformat()
     ticket["state"] = norm_target
     ticket["updated_at"] = now_utc
     if resolution_notes:
