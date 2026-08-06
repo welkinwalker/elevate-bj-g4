@@ -4,10 +4,9 @@ Constructs the ADK root_agent orchestrating WorkWeek HCM, ServiceImmediately ITS
 and Vertex AI Search / Policy RAG tools with Model Armor safety guardrails.
 """
 
-import sys
-import os
 import asyncio
-from typing import Optional, Dict, Any
+import sys
+from typing import Any
 
 from google.adk.agents import LlmAgent
 from google.adk.runners import Runner
@@ -15,21 +14,21 @@ from google.adk.sessions import InMemorySessionService
 from google.genai import types
 
 from . import config
-from .prompt import SUPERVISOR_PROMPT
 from .guardrails import ModelArmorGuard
+from .prompt import SUPERVISOR_PROMPT
 from .tools import ALL_TOOLS
 
 
 # =============================================================================
 # 1. Callback Hooks for Session & Model Armor Guardrails
 # =============================================================================
-def before_agent_callback(callback_context: Any) -> Optional[types.Content]:
+def before_agent_callback(callback_context: Any) -> types.Content | None:
     """Pre-processes input for prompt injection and SPII masking."""
     # Retrieve user input parts
     return None
 
 
-def after_agent_callback(callback_context: Any) -> Optional[types.Content]:
+def after_agent_callback(callback_context: Any) -> types.Content | None:
     """Post-processes output for safety and SPII redaction."""
     return None
 
@@ -120,12 +119,12 @@ def main():
         sys.exit(1)
 
     if sys.argv[1] == "--interactive":
-        print(f"==================================================")
-        print(f" Project Elevate: HR & IT Virtual Assistant (ADK) ")
+        print("==================================================")
+        print(" Project Elevate: HR & IT Virtual Assistant (ADK) ")
         print(f" Authenticated as: {config.DEFAULT_EMPLOYEE_ID} (Alex Taylor) ")
         print(f" Model: {config.GEMINI_MODEL} ")
-        print(f" Type 'exit' or 'quit' to end conversation. ")
-        print(f"==================================================\n")
+        print(" Type 'exit' or 'quit' to end conversation. ")
+        print("==================================================\n")
 
         session_id = "interactive_session"
         while True:

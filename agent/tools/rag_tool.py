@@ -5,10 +5,8 @@ Conforms to:
 - BRD FR-5.1, FR-5.2, FR-5.3, FR-5.4, NFR-3.1
 """
 
-import os
 import re
-from pathlib import Path
-from typing import Dict, Any, List
+from typing import Any
 
 from .. import config
 
@@ -91,7 +89,7 @@ POLICY_CATALOG = {
 }
 
 
-def vertex_search_policies(query: str) -> Dict[str, Any]:
+def vertex_search_policies(query: str) -> dict[str, Any]:
     """Performs semantic and keyword policy search against the enterprise HR & IT knowledge base.
 
     Returns grounded policy excerpts and verified clickable Markdown deep-link citations.

@@ -6,10 +6,9 @@ Conforms to:
 - BRD FR-3.1, FR-3.2, FR-3.3, FR-3.4
 """
 
-import re
 import datetime
-from typing import Dict, Any, Optional
-import httpx
+import re
+from typing import Any
 
 from .. import config
 from ..guardrails import ModelArmorGuard
@@ -92,7 +91,7 @@ class WorkWeekStateStore:
         }
         self.next_request_id = 501
 
-    def get_employee(self, employee_id: str) -> Optional[Dict[str, Any]]:
+    def get_employee(self, employee_id: str) -> dict[str, Any] | None:
         return self.employees.get(employee_id)
 
 
@@ -107,7 +106,7 @@ def set_active_caller_context(employee_id: str):
 # =============================================================================
 # WorkWeek Tools (ADK & FastMCP Callable)
 # =============================================================================
-def get_current_employee_id() -> Dict[str, Any]:
+def get_current_employee_id() -> dict[str, Any]:
     """Resolves the employee ID of the currently authenticated user session."""
     caller_id = _store.current_caller_id
     emp = _store.get_employee(caller_id)
@@ -119,7 +118,7 @@ def get_current_employee_id() -> Dict[str, Any]:
     }
 
 
-def get_employee_balances(employee_id: Optional[str] = None) -> Dict[str, Any]:
+def get_employee_balances(employee_id: str | None = None) -> dict[str, Any]:
     """Fetches remaining and used Vacation and Sick leave balances for an employee.
 
     Args:
@@ -176,7 +175,7 @@ def request_time_off(
     end_date: str,
     leave_type: str,
     days: float = 1.0,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Submits a time-off (PTO/Sick) request in WorkWeek HCM after validation.
 
     Args:
@@ -257,7 +256,7 @@ def request_time_off(
         "leave_type": norm_type,
         "days": days,
         "status": "Approved",
-        "submitted_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "submitted_at": datetime.datetime.now(datetime.UTC).isoformat(),
     }
     emp["leave_requests"].append(record)
 
@@ -277,7 +276,7 @@ def request_time_off(
     }
 
 
-def update_personal_info(employee_id: str, address: str, phone: str) -> Dict[str, Any]:
+def update_personal_info(employee_id: str, address: str, phone: str) -> dict[str, Any]:
     """Updates the employee's personal contact information (home address and phone number).
 
     Args:
@@ -326,7 +325,7 @@ def update_personal_info(employee_id: str, address: str, phone: str) -> Dict[str
     }
 
 
-def get_personal_info(employee_id: Optional[str] = None) -> Dict[str, Any]:
+def get_personal_info(employee_id: str | None = None) -> dict[str, Any]:
     """Fetches employee profile work details, home address, and contact number.
 
     Args:
@@ -358,7 +357,7 @@ def get_personal_info(employee_id: Optional[str] = None) -> Dict[str, Any]:
     }
 
 
-def cancel_leave_request(employee_id: str, request_id: int) -> Dict[str, Any]:
+def cancel_leave_request(employee_id: str, request_id: int) -> dict[str, Any]:
     """Cancels a pending or approved leave request and refunds the accrued days.
 
     Args:

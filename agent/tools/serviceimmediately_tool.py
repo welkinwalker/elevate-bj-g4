@@ -7,7 +7,7 @@ Conforms to:
 """
 
 import datetime
-from typing import Dict, Any, List, Optional
+from typing import Any
 
 from .. import config
 from ..guardrails import ModelArmorGuard
@@ -19,7 +19,7 @@ from ..guardrails import ModelArmorGuard
 class ServiceImmediatelyStateStore:
     def __init__(self):
         self.current_caller_id = config.DEFAULT_EMPLOYEE_ID
-        self.tickets: Dict[str, Dict[str, Any]] = {
+        self.tickets: dict[str, dict[str, Any]] = {
             "INC123456": {
                 "ticket_id": "INC123456",
                 "requested_by": "EMP-1002",
@@ -60,7 +60,7 @@ class ServiceImmediatelyStateStore:
         }
         self.ticket_counter = 98230
 
-    def get_ticket(self, ticket_id: str) -> Optional[Dict[str, Any]]:
+    def get_ticket(self, ticket_id: str) -> dict[str, Any] | None:
         return self.tickets.get(ticket_id)
 
 
@@ -75,7 +75,7 @@ def set_active_caller_context(employee_id: str):
 # =============================================================================
 # ServiceImmediately Tools (ADK & FastMCP Callable)
 # =============================================================================
-def list_tickets(employee_id: Optional[str] = None) -> Dict[str, Any]:
+def list_tickets(employee_id: str | None = None) -> dict[str, Any]:
     """Lists all active and historical incident tickets requested by the employee.
 
     Args:
@@ -110,7 +110,7 @@ def list_tickets(employee_id: Optional[str] = None) -> Dict[str, Any]:
     }
 
 
-def get_ticket_details(ticket_id: str) -> Dict[str, Any]:
+def get_ticket_details(ticket_id: str) -> dict[str, Any]:
     """Retrieves full incident details, status, priority, and comment activity timeline.
 
     Args:
@@ -159,7 +159,7 @@ def create_ticket(
     short_description: str,
     priority: str = "3 - Moderate",
     assignment_group: str = "Service Desk",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Creates a new support incident or request ticket in ServiceImmediately.
 
     Args:
@@ -177,7 +177,7 @@ def create_ticket(
         return {"status": "error", "error_code": "403_FORBIDDEN", "message": rbac_msg}
 
     # 2. Duplicate Detection (5-min window on identical subject, BRD FR-4.3)
-    now_utc = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    now_utc = datetime.datetime.now(datetime.UTC).isoformat()
     for t in _store.tickets.values():
         if (
             t["requested_by"] == requested_by
@@ -246,7 +246,7 @@ def create_ticket(
 
 def add_ticket_comment(
     ticket_id: str, author: str, comment: str
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Appends a comment or update note to an existing ticket activity timeline.
 
     Args:
@@ -265,7 +265,7 @@ def add_ticket_comment(
             "message": f"Ticket {ticket_id} is Closed and immutable. Comments cannot be added.",
         }
 
-    now_utc = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    now_utc = datetime.datetime.now(datetime.UTC).isoformat()
     ticket["comments"].append({"author": author, "comment": comment, "timestamp": now_utc})
     ticket["updated_at"] = now_utc
 
@@ -283,7 +283,7 @@ def update_ticket_status(
     status: str,
     resolution_notes: str = "",
     updated_by: str = "System",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Updates the lifecycle state of a ticket according to ITIL state machine rules.
 
     Valid transitions:
@@ -331,7 +331,7 @@ def update_ticket_status(
             ),
         }
 
-    now_utc = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    now_utc = datetime.datetime.now(datetime.UTC).isoformat()
     ticket["state"] = norm_target
     ticket["updated_at"] = now_utc
     if resolution_notes:

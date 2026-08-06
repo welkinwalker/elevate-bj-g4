@@ -8,7 +8,6 @@ Enforces:
 """
 
 import re
-from typing import Dict, Any, Tuple
 
 
 class ModelArmorGuard:
@@ -30,7 +29,7 @@ class ModelArmorGuard:
     PHONE_PATTERN = r"(?:\+?\d{1,3}[-.\s]?)?\(?\d{2,4}\)?[-.\s]?\d{3,4}[-.\s]?\d{3,4}\b"
 
     @classmethod
-    def inspect_input(cls, user_text: str, mask_phone: bool = True) -> Tuple[bool, str, str]:
+    def inspect_input(cls, user_text: str, mask_phone: bool = True) -> tuple[bool, str, str]:
         """Inspects incoming user prompt for injection or malicious overrides.
         
         Performs pre-LLM PII/SPII redaction on SSNs and phone numbers.
@@ -57,7 +56,7 @@ class ModelArmorGuard:
     @classmethod
     def check_rbac_isolation(
         cls, caller_id: str, target_employee_id: str
-    ) -> Tuple[bool, str]:
+    ) -> tuple[bool, str]:
         """Enforces single-tenant isolation.
         
         Employees can only query and mutate their own profile data.

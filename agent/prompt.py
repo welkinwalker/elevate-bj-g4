@@ -1,10 +1,9 @@
 """Supervisor Agent System Instructions and Dynamic Multi-Tenant Prompt Definitions."""
 
-from typing import Optional
 
 
 def build_supervisor_prompt(
-    employee_id: Optional[str] = None, employee_name: Optional[str] = None
+    employee_id: str | None = None, employee_name: str | None = None
 ) -> str:
     """Builds dynamic Supervisor Agent instructions scoped to the active tenant session."""
     

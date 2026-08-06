@@ -10,28 +10,25 @@ Tests all requirements defined in SDD.md and BRD.md:
 - Root Agent Instantiation
 """
 
-import pytest
+from agent.agent import root_agent
 from agent.guardrails import ModelArmorGuard
-from agent.prompt import build_supervisor_prompt, SUPERVISOR_PROMPT
+from agent.prompt import build_supervisor_prompt
+from agent.tools.rag_tool import vertex_search_policies
+from agent.tools.serviceimmediately_tool import (
+    create_ticket,
+    get_ticket_details,
+    update_ticket_status,
+)
+from agent.tools.serviceimmediately_tool import (
+    set_active_caller_context as set_itsm_caller_context,
+)
 from agent.tools.workweek_tool import (
     get_current_employee_id,
     get_employee_balances,
     request_time_off,
-    update_personal_info,
-    get_personal_info,
-    cancel_leave_request,
     set_active_caller_context,
+    update_personal_info,
 )
-from agent.tools.serviceimmediately_tool import (
-    list_tickets,
-    get_ticket_details,
-    create_ticket,
-    add_ticket_comment,
-    update_ticket_status,
-    set_active_caller_context as set_itsm_caller_context,
-)
-from agent.tools.rag_tool import vertex_search_policies
-from agent.agent import root_agent
 
 
 # =============================================================================
