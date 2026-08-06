@@ -1,0 +1,1093 @@
+{
+  "$schema": "https://raw.githubusercontent.com/google/agents-cli/main/schemas/evaluation_dataset.json",
+  "eval_cases": [
+    {
+      "eval_case_id": "uc2_1_cross_system_equipment_procurement",
+      "agent_data": {
+        "agents": {
+          "supervisor": {
+            "agent_id": "supervisor",
+            "agent_type": "SupervisorAgent",
+            "instruction": "Orchestrate HR & IT self-service transactions across Policy RAG, WorkWeek HCM, and ServiceImmediately ITSM.",
+            "tools": [
+              {
+                "function_declarations": [
+                  {
+                    "name": "vertex_search_policies",
+                    "description": "Search static HR policy documents in Vertex AI Search RAG knowledge base.",
+                    "parameters": {
+                      "type": "OBJECT",
+                      "properties": {
+                        "query": { "type": "STRING", "description": "Search query for HR policies" }
+                      },
+                      "required": ["query"]
+                    }
+                  },
+                  {
+                    "name": "get_personal_info",
+                    "description": "Fetch employee profile details, location, and address from WorkWeek HCM.",
+                    "parameters": {
+                      "type": "OBJECT",
+                      "properties": {
+                        "employee_id": { "type": "STRING", "description": "Employee ID (e.g. EMP-1002)" }
+                      },
+                      "required": ["employee_id"]
+                    }
+                  },
+                  {
+                    "name": "create_ticket",
+                    "description": "Create an incident or request ticket in ServiceImmediately ITSM.",
+                    "parameters": {
+                      "type": "OBJECT",
+                      "properties": {
+                        "requested_by": { "type": "STRING" },
+                        "category": { "type": "STRING" },
+                        "short_description": { "type": "STRING" },
+                        "priority": { "type": "STRING" },
+                        "assignment_group": { "type": "STRING" }
+                      },
+                      "required": ["requested_by", "category", "short_description", "priority"]
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "turns": [
+          {
+            "turn_index": 0,
+            "events": [
+              {
+                "author": "user",
+                "content": {
+                  "role": "user",
+                  "parts": [
+                    {
+                      "text": "I just read the remote work policy and saw I'm eligible for a home office monitor. Can you verify my remote status and order one for me?"
+                    }
+                  ]
+                }
+              },
+              {
+                "author": "supervisor",
+                "content": {
+                  "role": "model",
+                  "parts": [
+                    {
+                      "function_call": {
+                        "name": "vertex_search_policies",
+                        "args": {
+                          "query": "remote work home office monitor eligibility equipment policy"
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "author": "tool",
+                "content": {
+                  "role": "model",
+                  "parts": [
+                    {
+                      "function_response": {
+                        "name": "vertex_search_policies",
+                        "response": {
+                          "results": [
+                            {
+                              "document": "Remote Work Policy v2.4",
+                              "section": "Section 4: Home Office Equipment",
+                              "content": "Full-time designated remote employees are eligible for up to two 27-inch external monitors for their home office setup.",
+                              "url": "https://hr.enterprise.internal/policies/remote-work-policy#equipment"
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "author": "supervisor",
+                "content": {
+                  "role": "model",
+                  "parts": [
+                    {
+                      "function_call": {
+                        "name": "get_personal_info",
+                        "args": {
+                          "employee_id": "EMP-1002"
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "author": "tool",
+                "content": {
+                  "role": "model",
+                  "parts": [
+                    {
+                      "function_response": {
+                        "name": "get_personal_info",
+                        "response": {
+                          "employee_id": "EMP-1002",
+                          "name": "Alex Taylor",
+                          "work_location": "Remote",
+                          "role": "Staff Software Engineer",
+                          "address": "123 Tech Way, London",
+                          "phone": "+442079460000"
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "author": "supervisor",
+                "content": {
+                  "role": "model",
+                  "parts": [
+                    {
+                      "function_call": {
+                        "name": "create_ticket",
+                        "args": {
+                          "requested_by": "EMP-1002",
+                          "category": "Hardware",
+                          "short_description": "Home Office External Monitor Request - Remote Setup (123 Tech Way, London)",
+                          "priority": "4 - Low",
+                          "assignment_group": "IT Hardware Logistics"
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "author": "tool",
+                "content": {
+                  "role": "model",
+                  "parts": [
+                    {
+                      "function_response": {
+                        "name": "create_ticket",
+                        "response": {
+                          "ticket_id": "INC-98231",
+                          "state": "New",
+                          "category": "Hardware",
+                          "priority": "4 - Low",
+                          "created_at": "2026-08-06T08:45:00Z"
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "author": "supervisor",
+                "content": {
+                  "role": "model",
+                  "parts": [
+                    {
+                      "text": "I have verified your eligibility and processed your hardware request:\n\n1. **Policy Verification**: Per the [Remote Work Policy](https://hr.enterprise.internal/policies/remote-work-policy#equipment), full-time remote employees are eligible for up to two external monitors.\n2. **Status Verified**: Confirmed your status as **Remote** with shipping address on file: `123 Tech Way, London`.\n3. **Order Placed**: Created hardware procurement ticket **INC-98231** in ServiceImmediately. IT Logistics will ship your 27-inch monitor within 3-5 business days."
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "rubric_groups": {
+        "orchestration_rubrics": {
+          "rubrics": [
+            {
+              "rubric_id": "policy_rag_check",
+              "content": {
+                "property": {
+                  "description": "Agent must query policy RAG for remote work equipment terms and provide citation link."
+                }
+              }
+            },
+            {
+              "rubric_id": "workweek_verification",
+              "content": {
+                "property": {
+                  "description": "Agent must check employee profile in WorkWeek to confirm remote work location."
+                }
+              }
+            },
+            {
+              "rubric_id": "itsm_ticket_creation",
+              "content": {
+                "property": {
+                  "description": "Agent must successfully invoke create_ticket in ServiceImmediately with Hardware category and return ticket ID."
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "eval_case_id": "uc2_2_cross_system_medical_leave_orchestration",
+      "agent_data": {
+        "agents": {
+          "supervisor": {
+            "agent_id": "supervisor",
+            "agent_type": "SupervisorAgent",
+            "instruction": "Orchestrate medical leave processing across policies, WorkWeek HCM, and ServiceImmediately ITSM.",
+            "tools": [
+              {
+                "function_declarations": [
+                  {
+                    "name": "vertex_search_policies",
+                    "description": "Search HR policy repository."
+                  },
+                  {
+                    "name": "get_employee_balances",
+                    "description": "Query employee vacation and sick leave balances from WorkWeek."
+                  },
+                  {
+                    "name": "request_time_off",
+                    "description": "Submit a leave request in WorkWeek."
+                  },
+                  {
+                    "name": "create_ticket",
+                    "description": "Create a support ticket in ServiceImmediately."
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "turns": [
+          {
+            "turn_index": 0,
+            "events": [
+              {
+                "author": "user",
+                "content": {
+                  "role": "user",
+                  "parts": [
+                    {
+                      "text": "I need to take short-term medical leave starting next Monday (2026-08-10) for 10 working days. What is the process, and can you set it up for me?"
+                    }
+                  ]
+                }
+              },
+              {
+                "author": "supervisor",
+                "content": {
+                  "role": "model",
+                  "parts": [
+                    {
+                      "function_call": {
+                        "name": "vertex_search_policies",
+                        "args": {
+                          "query": "short term medical leave of absence procedure requirements"
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "author": "tool",
+                "content": {
+                  "role": "model",
+                  "parts": [
+                    {
+                      "function_response": {
+                        "name": "vertex_search_policies",
+                        "response": {
+                          "results": [
+                            {
+                              "document": "Leave of Absence & Medical Policy",
+                              "section": "Section 3.2: Short-Term Medical Leave",
+                              "content": "Short-term medical leave over 3 consecutive business days requires Sick Leave allocation and manager notification. IT routing must be initiated for mailbox auto-responder delegation.",
+                              "url": "https://hr.enterprise.internal/policies/medical-leave"
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "author": "supervisor",
+                "content": {
+                  "role": "model",
+                  "parts": [
+                    {
+                      "function_call": {
+                        "name": "get_employee_balances",
+                        "args": {
+                          "employee_id": "EMP-1002"
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "author": "tool",
+                "content": {
+                  "role": "model",
+                  "parts": [
+                    {
+                      "function_response": {
+                        "name": "get_employee_balances",
+                        "response": {
+                          "employee_id": "EMP-1002",
+                          "vacation_days": 5,
+                          "sick_days": 15
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "author": "supervisor",
+                "content": {
+                  "role": "model",
+                  "parts": [
+                    {
+                      "function_call": {
+                        "name": "request_time_off",
+                        "args": {
+                          "employee_id": "EMP-1002",
+                          "start_date": "2026-08-10",
+                          "end_date": "2026-08-21",
+                          "leave_type": "Sick",
+                          "days": 10
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "author": "tool",
+                "content": {
+                  "role": "model",
+                  "parts": [
+                    {
+                      "function_response": {
+                        "name": "request_time_off",
+                        "response": {
+                          "status": "CONFIRMED",
+                          "request_id": 602,
+                          "leave_type": "Sick",
+                          "days": 10,
+                          "remaining_sick_days": 5
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "author": "supervisor",
+                "content": {
+                  "role": "model",
+                  "parts": [
+                    {
+                      "function_call": {
+                        "name": "create_ticket",
+                        "args": {
+                          "requested_by": "EMP-1002",
+                          "category": "HR Access",
+                          "short_description": "Short-Term Medical Leave Out-Of-Office Mailbox Delegation (Aug 10-21)",
+                          "priority": "3 - Moderate",
+                          "assignment_group": "IT Identity & Access"
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "author": "tool",
+                "content": {
+                  "role": "model",
+                  "parts": [
+                    {
+                      "function_response": {
+                        "name": "create_ticket",
+                        "response": {
+                          "ticket_id": "INC-98240",
+                          "state": "New"
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "author": "supervisor",
+                "content": {
+                  "role": "model",
+                  "parts": [
+                    {
+                      "text": "Your short-term medical leave has been configured across all systems:\n\n1. **Policy Guidelines**: Per the [Medical Leave Policy](https://hr.enterprise.internal/policies/medical-leave), medical leave over 3 days utilizes your accrued Sick Leave.\n2. **WorkWeek Leave Submitted**: Booked 10 working days of Sick Leave from **2026-08-10** to **2026-08-21** (Request ID: **602**). Remaining Sick Leave balance: 5 days.\n3. **IT Access Ticket**: Opened ticket **INC-98240** in ServiceImmediately for IT to configure out-of-office routing to your manager during your absence."
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "eval_case_id": "uc2_3_cross_system_relocation_transfer",
+      "agent_data": {
+        "agents": {
+          "supervisor": {
+            "agent_id": "supervisor",
+            "agent_type": "SupervisorAgent",
+            "instruction": "Orchestrate employee office transfer across Relocation policy, WorkWeek HCM contact update, and ServiceImmediately badge access."
+          }
+        },
+        "turns": [
+          {
+            "turn_index": 0,
+            "events": [
+              {
+                "author": "user",
+                "content": {
+                  "role": "user",
+                  "parts": [
+                    {
+                      "text": "I'm transferring to the London office next month. Can you tell me the relocation allowance, update my address to 10 Downing St, London, phone to +442079460912, and get my building access sorted?"
+                    }
+                  ]
+                }
+              },
+              {
+                "author": "supervisor",
+                "content": {
+                  "role": "model",
+                  "parts": [
+                    {
+                      "function_call": {
+                        "name": "vertex_search_policies",
+                        "args": {
+                          "query": "employee relocation allowance transfer policy london"
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "author": "tool",
+                "content": {
+                  "role": "model",
+                  "parts": [
+                    {
+                      "function_response": {
+                        "name": "vertex_search_policies",
+                        "response": {
+                          "results": [
+                            {
+                              "document": "Global Mobility & Relocation Policy",
+                              "section": "Section 2.1: Tier-1 Office Transfer",
+                              "content": "Employees transferring between major regional hubs are eligible for a relocation lump-sum stipend of up to $5,000 USD for moving expenses. Physical badge provisioning must be initiated 14 days prior to start date.",
+                              "url": "https://hr.enterprise.internal/policies/relocation-policy"
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "author": "supervisor",
+                "content": {
+                  "role": "model",
+                  "parts": [
+                    {
+                      "function_call": {
+                        "name": "update_personal_info",
+                        "args": {
+                          "employee_id": "EMP-1002",
+                          "address": "10 Downing St, London",
+                          "phone": "+442079460912"
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "author": "tool",
+                "content": {
+                  "role": "model",
+                  "parts": [
+                    {
+                      "function_response": {
+                        "name": "update_personal_info",
+                        "response": {
+                          "status": "UPDATED",
+                          "employee_id": "EMP-1002",
+                          "address": "10 Downing St, London",
+                          "phone": "+442079460912"
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "author": "supervisor",
+                "content": {
+                  "role": "model",
+                  "parts": [
+                    {
+                      "function_call": {
+                        "name": "create_ticket",
+                        "args": {
+                          "requested_by": "EMP-1002",
+                          "category": "Facilities",
+                          "short_description": "London Office Building Access Badge Request (Transfer Start: 2026-09-01)",
+                          "priority": "3 - Moderate",
+                          "assignment_group": "Facilities Security"
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "author": "tool",
+                "content": {
+                  "role": "model",
+                  "parts": [
+                    {
+                      "function_response": {
+                        "name": "create_ticket",
+                        "response": {
+                          "ticket_id": "INC-98255",
+                          "state": "New"
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "author": "supervisor",
+                "content": {
+                  "role": "model",
+                  "parts": [
+                    {
+                      "text": "All relocation actions have been completed:\n\n1. **Relocation Policy**: Under the [Global Mobility & Relocation Policy](https://hr.enterprise.internal/policies/relocation-policy), you are eligible for a lump-sum relocation allowance of up to **$5,000 USD** for your London transfer.\n2. **WorkWeek Contact Updated**: Your record is updated with address `10 Downing St, London` and phone `+442079460912`.\n3. **Building Access Ticket**: Opened ticket **INC-98255** in ServiceImmediately with Facilities Security to issue your London office badge."
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "eval_case_id": "uc1_2_multi_turn_pto_booking_dialogue",
+      "agent_data": {
+        "agents": {
+          "supervisor": {
+            "agent_id": "supervisor",
+            "agent_type": "SupervisorAgent",
+            "instruction": "Handle conversational multi-turn PTO balance inquiries and booking."
+          }
+        },
+        "turns": [
+          {
+            "turn_index": 0,
+            "events": [
+              {
+                "author": "user",
+                "content": {
+                  "role": "user",
+                  "parts": [
+                    {
+                      "text": "How many days of vacation do I have left this year?"
+                    }
+                  ]
+                }
+              },
+              {
+                "author": "supervisor",
+                "content": {
+                  "role": "model",
+                  "parts": [
+                    {
+                      "function_call": {
+                        "name": "get_employee_balances",
+                        "args": {
+                          "employee_id": "EMP-1002"
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "author": "tool",
+                "content": {
+                  "role": "model",
+                  "parts": [
+                    {
+                      "function_response": {
+                        "name": "get_employee_balances",
+                        "response": {
+                          "vacation_days": 5.0,
+                          "vacation_hours": 40.0,
+                          "sick_days": 10.0
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "author": "supervisor",
+                "content": {
+                  "role": "model",
+                  "parts": [
+                    {
+                      "text": "You currently have **5.0 days** (40.0 hours) of Vacation Leave remaining and 10.0 days of Sick Leave. Would you like to schedule any upcoming time off?"
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "turn_index": 1,
+            "events": [
+              {
+                "author": "user",
+                "content": {
+                  "role": "user",
+                  "parts": [
+                    {
+                      "text": "Yes, please submit a vacation request for next Thursday (2026-08-13) and Friday (2026-08-14)."
+                    }
+                  ]
+                }
+              },
+              {
+                "author": "supervisor",
+                "content": {
+                  "role": "model",
+                  "parts": [
+                    {
+                      "function_call": {
+                        "name": "request_time_off",
+                        "args": {
+                          "employee_id": "EMP-1002",
+                          "start_date": "2026-08-13",
+                          "end_date": "2026-08-14",
+                          "leave_type": "Vacation",
+                          "days": 2.0
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "author": "tool",
+                "content": {
+                  "role": "model",
+                  "parts": [
+                    {
+                      "function_response": {
+                        "name": "request_time_off",
+                        "response": {
+                          "status": "CONFIRMED",
+                          "request_id": 501,
+                          "start_date": "2026-08-13",
+                          "end_date": "2026-08-14",
+                          "days": 2.0,
+                          "remaining_vacation_days": 3.0
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "author": "supervisor",
+                "content": {
+                  "role": "model",
+                  "parts": [
+                    {
+                      "text": "Your vacation request is confirmed!\n- **Dates**: August 13 - August 14, 2026 (2.0 days)\n- **Request ID**: 501\n- **Remaining Vacation Balance**: 3.0 days (24.0 hours)\n\nHave a great time off!"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "eval_case_id": "uc1_3_multi_turn_itsm_lifecycle",
+      "agent_data": {
+        "agents": {
+          "supervisor": {
+            "agent_id": "supervisor",
+            "agent_type": "SupervisorAgent",
+            "instruction": "Manage IT incident ticket creation, commenting, and resolution lifecycle in ServiceImmediately."
+          }
+        },
+        "turns": [
+          {
+            "turn_index": 0,
+            "events": [
+              {
+                "author": "user",
+                "content": {
+                  "role": "user",
+                  "parts": [
+                    {
+                      "text": "Create an IT ticket because my VPN connection keeps dropping."
+                    }
+                  ]
+                }
+              },
+              {
+                "author": "supervisor",
+                "content": {
+                  "role": "model",
+                  "parts": [
+                    {
+                      "function_call": {
+                        "name": "create_ticket",
+                        "args": {
+                          "requested_by": "EMP-1002",
+                          "category": "IT",
+                          "short_description": "VPN connection dropping intermittently",
+                          "priority": "3 - Moderate",
+                          "assignment_group": "IT Helpdesk"
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "author": "tool",
+                "content": {
+                  "role": "model",
+                  "parts": [
+                    {
+                      "function_response": {
+                        "name": "create_ticket",
+                        "response": {
+                          "ticket_id": "INC123456",
+                          "state": "New",
+                          "category": "IT",
+                          "priority": "3 - Moderate"
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "author": "supervisor",
+                "content": {
+                  "role": "model",
+                  "parts": [
+                    {
+                      "text": "I've created incident ticket **INC123456** for you under Category 'IT' with Moderate priority. The IT Helpdesk has been notified."
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "turn_index": 1,
+            "events": [
+              {
+                "author": "user",
+                "content": {
+                  "role": "user",
+                  "parts": [
+                    {
+                      "text": "Please add a comment to that ticket mentioning that restarting my router didn't fix it."
+                    }
+                  ]
+                }
+              },
+              {
+                "author": "supervisor",
+                "content": {
+                  "role": "model",
+                  "parts": [
+                    {
+                      "function_call": {
+                        "name": "add_ticket_comment",
+                        "args": {
+                          "ticket_id": "INC123456",
+                          "author": "EMP-1002",
+                          "comment": "User note: Restarting local home router did not resolve the VPN disconnection issue."
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "author": "tool",
+                "content": {
+                  "role": "model",
+                  "parts": [
+                    {
+                      "function_response": {
+                        "name": "add_ticket_comment",
+                        "response": {
+                          "status": "COMMENT_ADDED",
+                          "ticket_id": "INC123456"
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "author": "supervisor",
+                "content": {
+                  "role": "model",
+                  "parts": [
+                    {
+                      "text": "I've added the comment to ticket **INC123456** activity timeline."
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "turn_index": 2,
+            "events": [
+              {
+                "author": "user",
+                "content": {
+                  "role": "user",
+                  "parts": [
+                    {
+                      "text": "The VPN client auto-updated and now everything is working smoothly. Please mark the ticket as resolved."
+                    }
+                  ]
+                }
+              },
+              {
+                "author": "supervisor",
+                "content": {
+                  "role": "model",
+                  "parts": [
+                    {
+                      "function_call": {
+                        "name": "update_ticket_status",
+                        "args": {
+                          "ticket_id": "INC123456",
+                          "status": "Resolved",
+                          "resolution_notes": "Issue resolved by client application auto-update.",
+                          "updated_by": "EMP-1002"
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "author": "tool",
+                "content": {
+                  "role": "model",
+                  "parts": [
+                    {
+                      "function_response": {
+                        "name": "update_ticket_status",
+                        "response": {
+                          "status": "UPDATED",
+                          "ticket_id": "INC123456",
+                          "state": "Resolved"
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "author": "supervisor",
+                "content": {
+                  "role": "model",
+                  "parts": [
+                    {
+                      "text": "Ticket **INC123456** has been marked as **Resolved** with resolution notes recorded. Let me know if you need help with anything else!"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "eval_case_id": "edge_multi_turn_insufficient_balance_recovery",
+      "agent_data": {
+        "agents": {
+          "supervisor": {
+            "agent_id": "supervisor",
+            "agent_type": "SupervisorAgent",
+            "instruction": "Enforce PTO balance guardrails and guide user recovery."
+          }
+        },
+        "turns": [
+          {
+            "turn_index": 0,
+            "events": [
+              {
+                "author": "user",
+                "content": {
+                  "role": "user",
+                  "parts": [
+                    {
+                      "text": "Please book 10 days of vacation starting 2026-08-10."
+                    }
+                  ]
+                }
+              },
+              {
+                "author": "supervisor",
+                "content": {
+                  "role": "model",
+                  "parts": [
+                    {
+                      "function_call": {
+                        "name": "get_employee_balances",
+                        "args": {
+                          "employee_id": "EMP-1002"
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "author": "tool",
+                "content": {
+                  "role": "model",
+                  "parts": [
+                    {
+                      "function_response": {
+                        "name": "get_employee_balances",
+                        "response": {
+                          "vacation_days": 4.0,
+                          "sick_days": 10.0
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "author": "supervisor",
+                "content": {
+                  "role": "model",
+                  "parts": [
+                    {
+                      "text": "I cannot complete your request for 10 vacation days because you currently have **4.0 days** of vacation available in WorkWeek. Would you like to adjust your request to 4 days or fewer, or inquire about unpaid leave options?"
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "turn_index": 1,
+            "events": [
+              {
+                "author": "user",
+                "content": {
+                  "role": "user",
+                  "parts": [
+                    {
+                      "text": "Got it. Let's book 3 days instead, from 2026-08-10 to 2026-08-12."
+                    }
+                  ]
+                }
+              },
+              {
+                "author": "supervisor",
+                "content": {
+                  "role": "model",
+                  "parts": [
+                    {
+                      "function_call": {
+                        "name": "request_time_off",
+                        "args": {
+                          "employee_id": "EMP-1002",
+                          "start_date": "2026-08-10",
+                          "end_date": "2026-08-12",
+                          "leave_type": "Vacation",
+                          "days": 3.0
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "author": "tool",
+                "content": {
+                  "role": "model",
+                  "parts": [
+                    {
+                      "function_response": {
+                        "name": "request_time_off",
+                        "response": {
+                          "status": "CONFIRMED",
+                          "request_id": 505,
+                          "start_date": "2026-08-10",
+                          "end_date": "2026-08-12",
+                          "days": 3.0,
+                          "remaining_vacation_days": 1.0
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "author": "supervisor",
+                "content": {
+                  "role": "model",
+                  "parts": [
+                    {
+                      "text": "Your adjusted vacation request (Aug 10 - Aug 12, 3.0 days) is confirmed! Request ID: **505**. You have **1.0 day** of vacation balance remaining."
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
