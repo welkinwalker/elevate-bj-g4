@@ -17,7 +17,7 @@ variable "agent_sa_email" {
 
 variable "gemini_model" {
   type    = string
-  default = "gemini-2.5-flash"
+  default = "gemini-3.5-flash"
 }
 
 variable "agent_image" {

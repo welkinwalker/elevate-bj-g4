@@ -15,5 +15,5 @@ variable "environment" {
 
 variable "gemini_model" {
   type    = string
-  default = "gemini-2.5-flash"
+  default = "gemini-3.5-flash"
 }

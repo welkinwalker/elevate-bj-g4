@@ -7,10 +7,15 @@ FROM python:3.12-slim AS builder
 
 WORKDIR /app
 
+ARG PIP_INDEX_URL=""
+ARG UV_INDEX_URL=""
+
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_INDEX_URL=${PIP_INDEX_URL} \
+    UV_INDEX_URL=${UV_INDEX_URL}
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
