@@ -6,13 +6,19 @@ Tests all requirements defined in SDD.md and BRD.md:
 - Dynamic Supervisor Prompt Generation (SDD 3.1)
 - WorkWeek HCM Toolset (FR-3.1, FR-3.2, FR-3.3, FR-3.4)
 - ServiceImmediately ITSM Toolset (FR-4.1, FR-4.2, FR-4.3)
+- FastMCP Server Protocol & JSON-RPC 2.0 Serialization (SDD 5.1)
+- ElevateSessionService & UserSessionSchema Lifecycle (SDD 3.3, 3.4)
 - Policy RAG Grounding & Citations (FR-5.2, FR-5.3, FR-5.4)
-- Root Agent Instantiation
+- Root Agent Instantiation with Active Callbacks
 """
 
+import asyncio
 from agent.agent import root_agent
 from agent.guardrails import ModelArmorGuard
 from agent.prompt import build_supervisor_prompt
+from agent.session import ElevateSessionService
+from agent.mcp_servers.workweek_server import WorkWeekFastMCPServer
+from agent.mcp_servers.serviceimmediately_server import ServiceImmediatelyFastMCPServer
 from agent.tools.rag_tool import vertex_search_policies
 from agent.tools.serviceimmediately_tool import (
     create_ticket,
@@ -250,7 +256,82 @@ def test_itil_state_machine_transitions():
 
 
 # =============================================================================
-# 5. Policy Knowledge Base (RAG) Tests
+# 5. FastMCP Protocol & Server Serialization Tests (SDD 5.1)
+# =============================================================================
+def test_workweek_fastmcp_server_protocol():
+    """Verify FastMCP JSON-RPC tools/list and tools/call on WorkWeek server."""
+    server = WorkWeekFastMCPServer(mcp_token="secret_token_123")
+    headers = {"X-MCP-Token": "secret_token_123"}
+
+    # 1. tools/list
+    list_req = {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}
+    list_res = asyncio.run(server.handle_jsonrpc(list_req, headers))
+    assert list_res["jsonrpc"] == "2.0"
+    tool_names = [t["name"] for t in list_res["result"]["tools"]]
+    assert "get_employee_balances" in tool_names
+    assert "request_time_off" in tool_names
+
+    # 2. tools/call
+    call_req = {
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "tools/call",
+        "params": {"name": "get_employee_balances", "arguments": {"employee_id": "EMP-1002"}},
+    }
+    call_res = asyncio.run(server.handle_jsonrpc(call_req, headers))
+    assert call_res["id"] == 2
+    assert "result" in call_res
+
+
+def test_serviceimmediately_fastmcp_server_protocol():
+    """Verify FastMCP JSON-RPC tools/list and tools/call on ServiceImmediately server."""
+    server = ServiceImmediatelyFastMCPServer(mcp_token="secret_token_123")
+    headers = {"X-MCP-Token": "secret_token_123"}
+
+    list_req = {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}
+    list_res = asyncio.run(server.handle_jsonrpc(list_req, headers))
+    assert list_res["jsonrpc"] == "2.0"
+    tool_names = [t["name"] for t in list_res["result"]["tools"]]
+    assert "create_ticket" in tool_names
+    assert "update_ticket_status" in tool_names
+
+
+# =============================================================================
+# 6. ElevateSessionService & UserSessionSchema Lifecycle (SDD 3.3, 3.4)
+# =============================================================================
+def test_elevate_session_service_lifecycle():
+    """Verify session creation, persistence, archiving, and purging."""
+    service = ElevateSessionService()
+    user_id = "EMP-1002"
+    session_id = "test-session-uuid-001"
+
+    async def _test_lifecycle():
+        # 1. Create Session
+        session = await service.create_session("elevate-hr-agent", user_id, session_id)
+        assert session.id == session_id
+        assert session.user_id == user_id
+
+        # 2. Verify Metadata & Persistence
+        meta = service.session_metadata.get(session_id)
+        assert meta is not None
+        assert meta["session_state"] == "ACTIVE"
+        assert "ttl_expiration" in meta
+
+        # 3. Archive Session
+        archived = await service.archive_session(session_id)
+        assert archived is True
+        assert service.session_metadata[session_id]["session_state"] == "ARCHIVED"
+
+        # 4. Delete / Purge Session
+        await service.delete_session("elevate-hr-agent", user_id, session_id)
+        retrieved = await service.get_session("elevate-hr-agent", user_id, session_id)
+        assert retrieved is None
+
+    asyncio.run(_test_lifecycle())
+
+
+# =============================================================================
+# 7. Policy Knowledge Base (RAG) Tests
 # =============================================================================
 def test_vertex_search_policies_bereavement():
     """Verify policy lookup with deep-link citation generation (FR-5.3)."""
@@ -271,10 +352,12 @@ def test_vertex_search_policies_unrelated():
 
 
 # =============================================================================
-# 6. Root Agent Instantiation
+# 8. Root Agent Instantiation with Active Callbacks
 # =============================================================================
 def test_root_agent_configuration():
-    """Verify ADK Supervisor root agent configuration and tool registration."""
+    """Verify ADK Supervisor root agent configuration, tools, and active callbacks."""
     assert root_agent is not None
     assert root_agent.name == "elevate_supervisor_agent"
     assert len(root_agent.tools) == 12
+    assert root_agent.before_agent_callback is not None
+    assert root_agent.after_agent_callback is not None

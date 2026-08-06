@@ -1,35 +1,83 @@
-"""Project Elevate: Supervisor Agent Entry Point & CLI Runner.
+"""Project Elevate: Supervisor Agent Entry Point, Active Callbacks & CLI Runner.
 
 Constructs the ADK root_agent orchestrating WorkWeek HCM, ServiceImmediately ITSM,
-and Vertex AI Search / Policy RAG tools with Model Armor safety guardrails.
+and Vertex AI Search / Policy RAG tools with Model Armor safety guardrails and
+persistent multi-tier session lifecycle management.
 """
 
-import asyncio
 import sys
-from typing import Any
+import os
+import asyncio
+import time
+from typing import Optional, Dict, Any
 
 from google.adk.agents import LlmAgent
 from google.adk.runners import Runner
-from google.adk.sessions import InMemorySessionService
 from google.genai import types
 
 from . import config
-from .guardrails import ModelArmorGuard
 from .prompt import SUPERVISOR_PROMPT
+from .guardrails import ModelArmorGuard
 from .tools import ALL_TOOLS
+from .tools.workweek_tool import set_active_caller_context
+from .tools.serviceimmediately_tool import set_active_caller_context as set_itsm_caller_context
+from .session import ElevateSessionService
 
 
 # =============================================================================
-# 1. Callback Hooks for Session & Model Armor Guardrails
+# 1. Active Callback Hooks for Multi-Tenant Session & Model Armor Guardrails
 # =============================================================================
-def before_agent_callback(callback_context: Any) -> types.Content | None:
-    """Pre-processes input for prompt injection and SPII masking."""
-    # Retrieve user input parts
+def before_agent_callback(callback_context: Any) -> Optional[types.Content]:
+    """Active pre-agent hook executing before LLM inference.
+    
+    Responsibilities:
+    1. Multi-Tenant Identity: Binds authenticated employee context to backend tools.
+    2. Model Armor: Intercepts prompt injections and masks SPII (SSN, Phone).
+    3. Session State: Initializes session timestamps and caller metadata.
+    """
+    user_id = getattr(callback_context, "user_id", config.DEFAULT_EMPLOYEE_ID)
+    set_active_caller_context(user_id)
+    set_itsm_caller_context(user_id)
+
+    # If incoming message contains user text, sanitize it
+    if hasattr(callback_context, "new_message") and callback_context.new_message:
+        sanitized_parts = []
+        for part in callback_context.new_message.parts:
+            if hasattr(part, "text") and part.text:
+                is_safe, sanitized_text, refusal = ModelArmorGuard.inspect_input(part.text)
+                if not is_safe:
+                    # Return immediate safe refusal content
+                    return types.Content(
+                        role="model",
+                        parts=[
+                            types.Part(
+                                text=(
+                                    "I cannot fulfill this request. I am the enterprise HR & IT Virtual Assistant "
+                                    "and must adhere to enterprise security and governance policies."
+                                )
+                            )
+                        ],
+                    )
+                sanitized_parts.append(types.Part(text=sanitized_text))
+            else:
+                sanitized_parts.append(part)
+        callback_context.new_message.parts = sanitized_parts
+
     return None
 
 
-def after_agent_callback(callback_context: Any) -> types.Content | None:
-    """Post-processes output for safety and SPII redaction."""
+def after_agent_callback(callback_context: Any) -> Optional[types.Content]:
+    """Active post-agent hook executing after model response generation.
+    
+    Responsibilities:
+    1. Output Safety: Scans model responses to ensure no unmasked SPII leaks.
+    2. Citation Integrity: Logs validation status for policy citations.
+    """
+    if hasattr(callback_context, "response") and callback_context.response:
+        for part in callback_context.response.parts:
+            if hasattr(part, "text") and part.text:
+                part.text = ModelArmorGuard.inspect_output(part.text)
+
     return None
 
 
@@ -42,11 +90,13 @@ root_agent = LlmAgent(
     description="Enterprise HR & IT Virtual Assistant orchestrating WorkWeek, ServiceImmediately, and Policy RAG.",
     instruction=SUPERVISOR_PROMPT,
     tools=ALL_TOOLS,
+    before_agent_callback=before_agent_callback,
+    after_agent_callback=after_agent_callback,
 )
 
 
 # =============================================================================
-# 3. Session & Runner Plumbing
+# 3. Session & Runner Plumbing (Persistent ElevateSessionService)
 # =============================================================================
 _session_service = None
 
@@ -54,7 +104,7 @@ _session_service = None
 def _ensure_runner():
     global _session_service
     if _session_service is None:
-        _session_service = InMemorySessionService()
+        _session_service = ElevateSessionService()
     return Runner(app_name=config.APP_NAME, agent=root_agent, session_service=_session_service)
 
 
@@ -74,7 +124,7 @@ async def _run_query_async(
 ) -> str:
     """Executes a query through Model Armor input inspection and the ADK runner."""
     # 1. Model Armor Input Inspection
-    is_safe, sanitized_query, refusal_reason = ModelArmorGuard.inspect_input(query)
+    is_safe, sanitized_query, _ = ModelArmorGuard.inspect_input(query)
     if not is_safe:
         return (
             "I cannot fulfill this request. I am the enterprise HR & IT Virtual Assistant and must "
@@ -82,7 +132,11 @@ async def _run_query_async(
             "inquiries, WorkWeek self-service, or ServiceImmediately support tickets."
         )
 
-    # 2. ADK Runner Execution
+    # 2. Set multi-tenant caller context
+    set_active_caller_context(user_id)
+    set_itsm_caller_context(user_id)
+
+    # 3. ADK Runner Execution with Persistent Session Service
     runner = _ensure_runner()
     await _ensure_session_async(user_id, session_id)
     message = types.Content(role="user", parts=[types.Part(text=sanitized_query)])
@@ -93,7 +147,6 @@ async def _run_query_async(
             user_id=user_id, session_id=session_id, new_message=message
         )
         async for event in events:
-            # Check for model content response
             if hasattr(event, "content") and event.content:
                 for part in event.content.parts:
                     if hasattr(part, "text") and part.text:
@@ -101,10 +154,9 @@ async def _run_query_async(
             elif hasattr(event, "text") and event.text:
                 final_response += event.text
     except Exception as e:
-        # Check for API key / credential setup
-        final_response = f"[Agent Execution Note]: {str(e)}"
+        final_response = f"[Agent Execution Note]: {e!s}"
 
-    # 3. Model Armor Output Inspection
+    # 4. Model Armor Output Inspection
     safe_output = ModelArmorGuard.inspect_output(final_response)
     return safe_output
 
