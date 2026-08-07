@@ -41,6 +41,98 @@ class SwitchUserRequest(BaseModel):
     user_id: str
 
 
+@app.get("/.well-known/agent-card.json")
+@app.get("/a2a/app/.well-known/agent-card.json")
+async def get_agent_card():
+    """Exposes Agent-to-Agent (A2A) Agent Card specification for Gemini Enterprise."""
+    return {
+        "name": "elevate-hr-it-assistant",
+        "displayName": "Project Elevate HR & IT Assistant",
+        "display_name": "Project Elevate HR & IT Assistant",
+        "description": "Autonomous enterprise virtual assistant for HR policy inquiries, WorkWeek PTO self-service, and ServiceImmediately IT support tickets.",
+        "version": "1.0.0",
+        "protocol": "a2a",
+        "protocolVersion": "1.0.0",
+        "url": "https://elevate-agent.dywx-357111.a.run.app/api/chat",
+        "defaultInputModes": ["text"],
+        "defaultOutputModes": ["text"],
+        "supportedInputModes": ["text"],
+        "supportedOutputModes": ["text"],
+        "skills": [
+            {
+                "id": "hr_policy_qa",
+                "name": "HR & IT Policy Q&A",
+                "description": "Query enterprise HR and IT knowledge base policies with verified deep-link citations.",
+                "tags": ["hr", "policy", "rag", "citations"],
+            },
+            {
+                "id": "workweek_self_service",
+                "name": "WorkWeek HCM Self-Service",
+                "description": "Retrieve vacation/sick leave balances, profile information, and submit time off requests in WorkWeek.",
+                "tags": ["hcm", "workweek", "pto", "leave", "profile"],
+            },
+            {
+                "id": "serviceimmediately_itsm",
+                "name": "ServiceImmediately IT Support",
+                "description": "Create, view, update, and manage IT support incidents and service requests in ServiceImmediately.",
+                "tags": ["itsm", "it", "tickets", "serviceimmediately", "incidents"],
+            },
+        ],
+        "capabilities": {
+            "streaming": False,
+            "tools": [
+                {
+                    "name": "vertex_search_policies",
+                    "description": "Query enterprise HR and IT knowledge base policies with verified deep-link citations.",
+                },
+                {
+                    "name": "get_employee_balances",
+                    "description": "Retrieve vacation, sick, and floating holiday balances from WorkWeek.",
+                },
+                {
+                    "name": "request_time_off",
+                    "description": "Submit paid time off or sick leave requests in WorkWeek.",
+                },
+                {
+                    "name": "get_personal_info",
+                    "description": "View employee profile, contact details, and manager reporting line in WorkWeek.",
+                },
+                {
+                    "name": "update_personal_info",
+                    "description": "Update address and emergency contact details in WorkWeek.",
+                },
+                {
+                    "name": "get_leave_requests",
+                    "description": "Query existing time-off and leave requests from WorkWeek.",
+                },
+                {
+                    "name": "list_tickets",
+                    "description": "List IT support and service request tickets in ServiceImmediately.",
+                },
+                {
+                    "name": "get_ticket_details",
+                    "description": "Retrieve status, category, priority, and updates for a ServiceImmediately ticket.",
+                },
+                {
+                    "name": "create_ticket",
+                    "description": "Create a new IT support incident in ServiceImmediately.",
+                },
+                {
+                    "name": "update_ticket_status",
+                    "description": "Update the state of a ServiceImmediately incident following ITIL lifecycle transitions.",
+                },
+                {
+                    "name": "add_ticket_comment",
+                    "description": "Append a note or update comment to an active ServiceImmediately incident.",
+                },
+            ],
+        },
+        "authentication": {
+            "type": "none",
+        },
+    }
+
+
 @app.get("/", response_class=HTMLResponse)
 async def serve_index():
     """Serves the main web dashboard."""
