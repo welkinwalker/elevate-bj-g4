@@ -86,6 +86,55 @@ POLICY_CATALOG = {
             "spanning December and January deduct working days according to official enterprise holiday calendars."
         ),
     },
+    "outpatient_sick_leave": {
+        "title": "Outpatient Sick Time & Hospitalization Leave Policy",
+        "url": "https://hr.enterprise.internal/policies/sick-leave",
+        "keywords": ["outpatient", "mc", "doctor", "certificate", "medical certificate", "48 hours", "14 days", "out sick", "hospitalization"],
+        "excerpt": (
+            "Under Section 1.1 of the Policy Handbook, eligible employees receive up to 14 days of paid outpatient sick leave per "
+            "calendar year. If you are sick for more than two work days (e.g. 3 days), you must submit a medical certificate (MC) "
+            "from a registered medical practitioner via WorkWeek within 48 hours of taking the leave."
+        ),
+    },
+    "shift_vacation_accrual": {
+        "title": "Paid Vacation Leave & Shift Worker Accrual Policy",
+        "url": "https://hr.enterprise.internal/policies/vacation-leave",
+        "keywords": ["12-hour", "shift", "shift worker", "8 years", "single shift", "shift conversion", "tenure"],
+        "excerpt": (
+            "Under Section 1.2 of the Policy Handbook, employees with 7 to 10 years of service (including 8 years) accrue 21 days "
+            "of paid vacation per year. Shift workers taking a single 12-hour shift off must log 1.5 vacation days (calculated as "
+            "12 hours divided by standard 8-hour daily blocks)."
+        ),
+    },
+    "ramp_back_time": {
+        "title": "Ramp-Back Time Policy",
+        "url": "https://hr.enterprise.internal/policies/ramp-back",
+        "keywords": ["ramp-back", "ramp back", "family leave", "parental", "bonding", "returning", "working hours", "pay", "50%", "75%"],
+        "excerpt": (
+            "Under Section 2.3 of the Policy Handbook, eligible employees returning from at least 10 weeks of family/bonding leave "
+            "can take a 2-week paid Ramp-Back period. During this period, employees work 50% hours in week 1 and 75% hours in week 2 "
+            "while receiving 100% of their normal salary."
+        ),
+    },
+    "expense_gift_cards": {
+        "title": "Travel & Expense Guidelines — Personal Gifts & Gift Cards",
+        "url": "https://hr.enterprise.internal/policies/travel-expenses",
+        "keywords": ["gift card", "thank-you", "cousin", "sydney", "personal gift", "gift cards", "reimbursement"],
+        "excerpt": (
+            "Under Travel & Expense Guidelines Section 4.4 and Code of Conduct Section 5.2, gift cards, cash equivalents, and personal "
+            "thank-you gifts (such as for lodging with friends/family on business trips) are strictly non-reimbursable and prohibited expenditures."
+        ),
+    },
+    "ethics_room_salon": {
+        "title": "Commercial Entertainment & Ethics Guidelines",
+        "url": "https://hr.enterprise.internal/policies/code-of-conduct",
+        "keywords": ["room salon", "hostess bar", "strip club", "adult entertainment", "potential client", "entertainment limit", "$80", "$100"],
+        "excerpt": (
+            "Under Section 5.2 of the Code of Conduct, business entertainment must never involve adult entertainment venues (strip clubs, "
+            "hostess bars, room salons) or gambling. These locations are strictly prohibited for client hosting regardless of the expense amount "
+            "or the $100 pre-approval threshold."
+        ),
+    },
 }
 
 

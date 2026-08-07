@@ -724,6 +724,229 @@
           ]
         }
       }
+    },
+    {
+      "eval_case_id": "gap_01_outpatient_sick_leave_policy",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "What is my annual limit for outpatient sick leave, and how quickly must I submit an MC if I am out sick for 3 days?"
+          }
+        ]
+      },
+      "responses": [
+        {
+          "response": {
+            "role": "model",
+            "parts": [
+              {
+                "text": "Under the [Outpatient Sick Time & Hospitalization Leave Policy](https://hr.enterprise.internal/policies/sick-leave):\n- **Outpatient Sick Leave Limit**: Eligible employees receive up to **14 days** of paid outpatient sick leave per calendar year.\n- **Medical Certificate (MC) Submission**: Because you are out sick for more than two work days (3 days), you must submit a medical certificate from a registered medical practitioner via WorkWeek within **48 hours** of taking the leave."
+              }
+            ]
+          }
+        }
+      ],
+      "reference": {
+        "response": {
+          "role": "model",
+          "parts": [
+            {
+              "text": "Eligible employees receive up to 14 days of paid outpatient sick leave per year. An MC is required within 48 hours for absences exceeding two work days under the Outpatient Sick Time & Hospitalization Leave Policy (https://hr.enterprise.internal/policies/sick-leave)."
+            }
+          ]
+        }
+      },
+      "rubric_groups": {
+        "policy_accuracy_rubrics": {
+          "rubrics": [
+            {
+              "rubric_id": "outpatient_allowance_14_days",
+              "content": {
+                "property": {
+                  "description": "The response must state that the outpatient sick leave limit is 14 days per calendar year."
+                }
+              }
+            },
+            {
+              "rubric_id": "mc_submission_48_hours",
+              "content": {
+                "property": {
+                  "description": "The response must specify the 48-hour submission deadline for medical certificates when out sick for more than 2 days."
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "eval_case_id": "gap_02_vacation_accrual_and_shift",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "I work 12-hour shifts and have been at Altostrat for 8 years. How many vacation days do I earn per year, and how many days of leave do I log for taking one shift off?"
+          }
+        ]
+      },
+      "responses": [
+        {
+          "response": {
+            "role": "model",
+            "parts": [
+              {
+                "text": "Under the [Paid Vacation Leave Policy](https://hr.enterprise.internal/policies/vacation-leave):\n- **Annual Vacation Accrual**: With 8 years of continuous service (falling in the 7 to 10 years tier), you accrue **21 days** of paid vacation per year.\n- **Shift Conversion**: Shift workers log leave based on standard 8-hour blocks. Taking a single **12-hour shift** off requires recording **1.5 vacation days** in WorkWeek."
+              }
+            ]
+          }
+        }
+      ],
+      "reference": {
+        "response": {
+          "role": "model",
+          "parts": [
+            {
+              "text": "Employees with 8 years of tenure earn 21 days of vacation per year, and taking one 12-hour shift off requires logging 1.5 vacation days under the Paid Vacation Leave Policy (https://hr.enterprise.internal/policies/vacation-leave)."
+            }
+          ]
+        }
+      },
+      "rubric_groups": {
+        "shift_accrual_rubrics": {
+          "rubrics": [
+            {
+              "rubric_id": "tenure_accrual_correctness",
+              "content": {
+                "property": {
+                  "description": "The response must state the correct vacation accrual for 8 years of service."
+                }
+              }
+            },
+            {
+              "rubric_id": "shift_conversion_1_5_days",
+              "content": {
+                "property": {
+                  "description": "The response must specify that a single 12-hour shift corresponds to 1.5 vacation days."
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "eval_case_id": "gap_03_ramp_back_time_policy",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "Can you explain the rules regarding pay and working hours during the 2-week Ramp-Back period when returning from family leave?"
+          }
+        ]
+      },
+      "responses": [
+        {
+          "response": {
+            "role": "model",
+            "parts": [
+              {
+                "text": "Under the [Ramp-Back Time Policy](https://hr.enterprise.internal/policies/ramp-back):\n- **Duration**: Up to 2 weeks immediately following return from at least 10 weeks of family/bonding leave.\n- **Working Hours**: You must work a minimum of **50% hours in week 1** and **75% hours in week 2**.\n- **Compensation**: You receive **100% of your normal salary** throughout the entire 2-week ramp-back transition."
+              }
+            ]
+          }
+        }
+      ],
+      "reference": {
+        "response": {
+          "role": "model",
+          "parts": [
+            {
+              "text": "During the 2-week Ramp-Back period, employees work 50% hours in week 1, 75% hours in week 2, and receive 100% pay under the Ramp-Back Time Policy (https://hr.enterprise.internal/policies/ramp-back)."
+            }
+          ]
+        }
+      },
+      "rubric_groups": {
+        "ramp_back_rubrics": {
+          "rubrics": [
+            {
+              "rubric_id": "ramp_back_schedule_and_pay",
+              "content": {
+                "property": {
+                  "description": "The response must explain working 50% hours in week 1, 75% in week 2, and receiving 100% pay."
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "eval_case_id": "gap_04_expense_gift_card_violation",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "I stayed at my cousin's house in Sydney during a business trip. Can I expense a $45 gift card as a thank-you present?"
+          }
+        ]
+      },
+      "responses": [
+        {
+          "response": {
+            "role": "model",
+            "parts": [
+              {
+                "text": "No, you cannot expense the gift card. Under the [Travel & Expense Guidelines](https://hr.enterprise.internal/policies/travel-expenses) and Code of Conduct, gift cards, cash equivalents, and personal thank-you gifts are strictly non-reimbursable expenditures, even when staying with family or friends during business travel."
+              }
+            ]
+          }
+        }
+      ],
+      "reference": {
+        "response": {
+          "role": "model",
+          "parts": [
+            {
+              "text": "Clean refusal explaining that gift cards and personal thank-you gifts are non-reimbursable under Travel & Expense Guidelines (https://hr.enterprise.internal/policies/travel-expenses)."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "eval_case_id": "gap_05_ethics_room_salon_violation",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "I want to take a potential client to a room salon for $80 per person. Since this is under the $100 entertainment limit, am I allowed to do this?"
+          }
+        ]
+      },
+      "responses": [
+        {
+          "response": {
+            "role": "model",
+            "parts": [
+              {
+                "text": "No, this is strictly prohibited. Under Section 5.2 of the [Code of Conduct & Ethics Policy](https://hr.enterprise.internal/policies/code-of-conduct), business entertainment must never involve adult entertainment venues (including room salons, hostess bars, and strip clubs) or gambling. There is a zero-tolerance prohibition on these venues regardless of the cost per person or the standard $100 pre-approval threshold."
+              }
+            ]
+          }
+        }
+      ],
+      "reference": {
+        "response": {
+          "role": "model",
+          "parts": [
+            {
+              "text": "Strict ethical refusal: Room salons and adult entertainment venues are completely banned for client entertainment regardless of the amount under the Code of Conduct (https://hr.enterprise.internal/policies/code-of-conduct)."
+            }
+          ]
+        }
+      }
     }
   ]
 }
