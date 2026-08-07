@@ -12,6 +12,7 @@ from .workweek_tool import (
     cancel_leave_request,
     get_current_employee_id,
     get_employee_balances,
+    get_leave_requests,
     get_personal_info,
     request_time_off,
     update_personal_info,
@@ -21,6 +22,7 @@ ALL_TOOLS = [
     # WorkWeek HCM tools
     get_current_employee_id,
     get_employee_balances,
+    get_leave_requests,
     request_time_off,
     update_personal_info,
     get_personal_info,
@@ -39,6 +41,7 @@ __all__ = [
     "ALL_TOOLS",
     "get_current_employee_id",
     "get_employee_balances",
+    "get_leave_requests",
     "request_time_off",
     "update_personal_info",
     "get_personal_info",

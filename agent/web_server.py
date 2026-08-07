@@ -16,7 +16,12 @@ import uvicorn
 
 from . import config
 from .agent import _run_query_async
-from .tools.workweek_tool import get_personal_info, get_employee_balances, set_active_caller_context
+from .tools.workweek_tool import (
+    get_personal_info,
+    get_employee_balances,
+    get_leave_requests,
+    set_active_caller_context,
+)
 from .tools.serviceimmediately_tool import list_tickets, set_active_caller_context as set_itsm_caller_context
 
 
@@ -57,8 +62,9 @@ async def chat_endpoint(payload: ChatRequest):
         session_id=session_id,
     )
 
-    # Fetch updated balances and tickets for live sidebar refresh
+    # Fetch updated balances, leave requests, and tickets for live sidebar refresh
     balances = get_employee_balances(user_id)
+    leave_requests = get_leave_requests(user_id)
     tickets = list_tickets(user_id)
 
     return {
@@ -67,21 +73,32 @@ async def chat_endpoint(payload: ChatRequest):
         "user_id": user_id,
         "session_id": session_id,
         "balances": balances.get("balances", {}),
+        "leave_requests": leave_requests.get("leave_requests", []),
         "tickets": tickets.get("tickets", []),
     }
 
 
 @app.get("/api/profile")
 async def profile_endpoint(user_id: Optional[str] = None):
-    """Fetches profile metadata and leave balances for active employee."""
+    """Fetches profile metadata, leave balances, and leave history for active employee."""
     uid = user_id or config.DEFAULT_EMPLOYEE_ID
     set_active_caller_context(uid)
     profile = get_personal_info(uid)
     balances = get_employee_balances(uid)
+    leave_requests = get_leave_requests(uid)
     return {
         "profile": profile,
         "balances": balances.get("balances", {}),
+        "leave_requests": leave_requests.get("leave_requests", []),
     }
+
+
+@app.get("/api/leave-requests")
+async def leave_requests_endpoint(user_id: Optional[str] = None):
+    """Fetches leave requests from WorkWeek for active employee."""
+    uid = user_id or config.DEFAULT_EMPLOYEE_ID
+    set_active_caller_context(uid)
+    return get_leave_requests(uid)
 
 
 @app.get("/api/tickets")
@@ -99,12 +116,14 @@ async def switch_user_endpoint(payload: SwitchUserRequest):
     set_itsm_caller_context(payload.user_id)
     profile = get_personal_info(payload.user_id)
     balances = get_employee_balances(payload.user_id)
+    leave_requests = get_leave_requests(payload.user_id)
     tickets = list_tickets(payload.user_id)
     return {
         "status": "success",
         "user_id": payload.user_id,
         "profile": profile,
         "balances": balances.get("balances", {}),
+        "leave_requests": leave_requests.get("leave_requests", []),
         "tickets": tickets.get("tickets", []),
     }
 

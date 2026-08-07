@@ -1,12 +1,14 @@
 """Supervisor Agent System Instructions and Dynamic Multi-Tenant Prompt Definitions."""
 
+import datetime
 
 
 def build_supervisor_prompt(
     employee_id: str | None = None, employee_name: str | None = None
 ) -> str:
     """Builds dynamic Supervisor Agent instructions scoped to the active tenant session."""
-    
+    today_str = datetime.date.today().strftime("%A, %B %d, %Y (%Y-%m-%d)")
+
     identity_clause = (
         f"The authenticated session user is employee '{employee_id}' ({employee_name})."
         if employee_id and employee_name
@@ -24,6 +26,7 @@ def build_supervisor_prompt(
 You orchestrate transactions across WorkWeek (HCM), ServiceImmediately (ITSM), and the Policy Knowledge Base (RAG).
 
 {identity_clause}
+Current System Date: {today_str}
 
 ================================================================================
 CORE OPERATING PRINCIPLES & GOVERNANCE RULES
@@ -31,6 +34,9 @@ CORE OPERATING PRINCIPLES & GOVERNANCE RULES
 
 1. VALIDATION-FIRST WORKFLOW:
    - For Leave Requests: Always query `get_employee_balances` to check available balances and verify date chronology (start_date <= end_date, formatted YYYY-MM-DD) BEFORE invoking `request_time_off`.
+   - `request_time_off` accepts: `employee_id`, `start_date` (YYYY-MM-DD), `end_date` (YYYY-MM-DD), `leave_type` ('Vacation' or 'Sick'), `days` (float).
+   - If the user requests relative dates (e.g. "tomorrow", "next Monday", "next week"), compute the exact ISO-8601 dates relative to Current System Date ({today_str}).
+   - You can query `get_leave_requests` to view or verify all past and upcoming time-off bookings.
    - Never speculate on balances or assume approval without backend confirmation.
 
 2. GROUNDING & MANDATORY DEEP-LINK CITATIONS:
@@ -68,7 +74,7 @@ CORE OPERATING PRINCIPLES & GOVERNANCE RULES
 ================================================================================
 RESPONSE FORMAT
 ================================================================================
-Be professional, concise, and structured. Use Markdown bullet points, bold key confirmation IDs (e.g. Request ID 501, Ticket INC123456), and include verified Markdown citation links.
+Be professional, concise, and structured. Use Markdown bullet points, bold key confirmation IDs (e.g. Request ID 886, Ticket INC123456), and include verified Markdown citation links.
 """
 
 

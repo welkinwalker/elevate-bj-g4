@@ -215,7 +215,7 @@ def get_employee_balances(employee_id: str | None = None) -> dict[str, Any]:
     if not allowed:
         return {"status": "error", "error_code": "403_FORBIDDEN", "message": rbac_msg}
 
-    # 2. Try Live Remote FastMCP Call (if targeting current remote tenant context)
+    # 2. Try Live Remote FastMCP Call
     if target_id == "EMP-247" or target_id == _store.current_caller_id:
         remote_res = _call_remote_workweek_mcp("get_employee_balances", {"employee_id": target_id})
         if remote_res and "content" in remote_res:
@@ -244,7 +244,7 @@ def get_employee_balances(employee_id: str | None = None) -> dict[str, Any]:
                                 "remaining_hours": sick_rem * 8.0,
                             },
                         },
-                        "summary": f"Vacation: {vac_rem * 8.0}h ({vac_rem} days) remaining; Sick: {sick_rem * 8.0}h ({sick_rem} days) remaining.",
+                        "summary": f"Vacation: {vac_rem * 8.0}h ({vac_rem} days) remaining; Sick: {sick_rem * 8.0}h ({sick_rem} days) remaining. (Live Cloud Sync)",
                     }
 
     # 3. Local State
@@ -280,6 +280,51 @@ def get_employee_balances(employee_id: str | None = None) -> dict[str, Any]:
             f"Vacation: {vacation['remaining_hours']}h ({vacation['remaining_days']} days) remaining; "
             f"Sick: {sick['remaining_hours']}h ({sick['remaining_days']} days) remaining."
         ),
+    }
+
+
+def get_leave_requests(employee_id: str | None = None) -> dict[str, Any]:
+    """Gets the history of all requested time off (leave requests) for a WorkWeek employee.
+
+    Args:
+        employee_id: Employee ID. If omitted, defaults to active session caller.
+    """
+    target_id = employee_id or _store.current_caller_id
+
+    # 1. RBAC Check
+    allowed, rbac_msg = ModelArmorGuard.check_rbac_isolation(
+        _store.current_caller_id, target_id
+    )
+    if not allowed:
+        return {"status": "error", "error_code": "403_FORBIDDEN", "message": rbac_msg}
+
+    # 2. Try Remote FastMCP Call
+    if target_id == "EMP-247" or target_id == _store.current_caller_id:
+        remote_res = _call_remote_workweek_mcp("get_leave_requests", {"employee_id": target_id})
+        if remote_res and "content" in remote_res:
+            txt = remote_res["content"][0].get("text", "")
+            try:
+                r_list = json.loads(txt)
+                if isinstance(r_list, list):
+                    return {
+                        "status": "success",
+                        "employee_id": target_id,
+                        "count": len(r_list),
+                        "leave_requests": r_list,
+                    }
+            except Exception:
+                pass
+
+    # 3. Local State
+    emp = _store.get_employee(target_id)
+    if not emp:
+        return {"status": "error", "error_code": "404_NOT_FOUND", "message": f"Employee {target_id} not found."}
+
+    return {
+        "status": "success",
+        "employee_id": target_id,
+        "count": len(emp.get("leave_requests", [])),
+        "leave_requests": emp.get("leave_requests", []),
     }
 
 
@@ -336,7 +381,7 @@ def request_time_off(
             "message": f"Invalid leave type '{leave_type}'. Must be 'Vacation' or 'Sick'.",
         }
 
-    # 3. Check Balance in Store
+    # 3. Check Local Record
     emp = _store.get_employee(employee_id)
     if not emp:
         return {
@@ -360,8 +405,8 @@ def request_time_off(
         }
 
     # 4. Call Remote FastMCP Server Live if configured
-    if employee_id == "EMP-247":
-        _call_remote_workweek_mcp(
+    if employee_id == "EMP-247" or employee_id == _store.current_caller_id:
+        remote_res = _call_remote_workweek_mcp(
             "request_time_off",
             {
                 "employee_id": employee_id,
@@ -371,6 +416,35 @@ def request_time_off(
                 "days": days,
             },
         )
+        if remote_res and "content" in remote_res:
+            resp_msg = remote_res["content"][0].get("text", "")
+            if "Approved" in resp_msg or "Success" in resp_msg:
+                # Query real latest request id from remote cloud SaaS
+                req_res = _call_remote_workweek_mcp("get_leave_requests", {"employee_id": employee_id})
+                latest_req_id = 501
+                if req_res and "content" in req_res:
+                    try:
+                        r_list = json.loads(req_res["content"][0].get("text", ""))
+                        if r_list and isinstance(r_list, list):
+                            latest_req_id = r_list[0].get("request_id", 501)
+                    except Exception:
+                        pass
+
+                balance_record["used_days"] += days
+                balance_record["remaining_days"] -= days
+                balance_record["remaining_hours"] = balance_record["remaining_days"] * 8.0
+
+                return {
+                    "status": "success",
+                    "request_id": latest_req_id,
+                    "employee_id": employee_id,
+                    "leave_type": norm_leave_type,
+                    "days_booked": days,
+                    "start_date": start_date,
+                    "end_date": end_date,
+                    "remaining_balance_days": balance_record["remaining_days"],
+                    "message": f"Time off request {latest_req_id} ({norm_leave_type}, {days} days from {start_date} to {end_date}) successfully submitted and approved on live cloud WorkWeek HCM: {resp_msg}",
+                }
 
     # 5. Local State Deduction
     balance_record["used_days"] += days
@@ -437,7 +511,7 @@ def update_personal_info(
         }
 
     # 3. Call Remote Live FastMCP if EMP-247
-    if employee_id == "EMP-247":
+    if employee_id == "EMP-247" or employee_id == _store.current_caller_id:
         _call_remote_workweek_mcp(
             "update_personal_info",
             {
@@ -519,7 +593,7 @@ def cancel_leave_request(employee_id: str, request_id: int) -> dict[str, Any]:
         return {"status": "error", "error_code": "403_FORBIDDEN", "message": rbac_msg}
 
     # 2. Call Remote Live FastMCP if EMP-247
-    if employee_id == "EMP-247":
+    if employee_id == "EMP-247" or employee_id == _store.current_caller_id:
         _call_remote_workweek_mcp(
             "cancel_leave_request",
             {"employee_id": employee_id, "request_id": request_id},

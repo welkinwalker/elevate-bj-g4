@@ -478,25 +478,36 @@
       <div class="card">
         <div class="card-title">
           <span>Leave Balances</span>
-          <span style="font-size: 11px; font-weight: normal; color: var(--success);">Live State</span>
+          <span style="font-size: 11px; font-weight: normal; color: var(--success);">Live Cloud State</span>
         </div>
         <div class="balance-meter">
           <div class="balance-header">
             <span>Vacation (PTO)</span>
-            <strong id="vacRemaining">5.0 days (40h)</strong>
+            <strong id="vacRemaining">12.0 days (96h)</strong>
           </div>
           <div class="progress-bar">
-            <div class="progress-fill" id="vacProgress" style="width: 33%;"></div>
+            <div class="progress-fill" id="vacProgress" style="width: 60%;"></div>
           </div>
         </div>
         <div class="balance-meter">
           <div class="balance-header">
             <span>Sick Leave</span>
-            <strong id="sickRemaining">10.0 days (80h)</strong>
+            <strong id="sickRemaining">8.0 days (64h)</strong>
           </div>
           <div class="progress-bar">
-            <div class="progress-fill sick" id="sickProgress" style="width: 83%;"></div>
+            <div class="progress-fill sick" id="sickProgress" style="width: 80%;"></div>
           </div>
+        </div>
+      </div>
+
+      <!-- Booked Time Off Requests Card -->
+      <div class="card">
+        <div class="card-title">
+          <span>Registered Time-Off</span>
+          <span style="font-size: 11px; font-weight: normal; color: var(--primary);">WorkWeek SaaS</span>
+        </div>
+        <div id="leaveRequestsList">
+          <div style="font-size:12px; color:#5f6368;">Loading leave requests...</div>
         </div>
       </div>
 
@@ -544,6 +555,9 @@
         if (data.balances) {
           updateBalancesUI(data.balances);
         }
+        if (data.leave_requests) {
+          updateLeaveRequestsUI(data.leave_requests);
+        }
 
         const tRes = await fetch(`/api/tickets?user_id=${activeUserId}`);
         const tData = await tRes.json();
@@ -568,6 +582,25 @@
         const sPct = Math.min(100, Math.round((s.remaining_days / (s.accrued_days || 12)) * 100));
         document.getElementById('sickProgress').style.width = `${sPct}%`;
       }
+    }
+
+    function updateLeaveRequestsUI(requests) {
+      const container = document.getElementById('leaveRequestsList');
+      if (!requests || requests.length === 0) {
+        container.innerHTML = '<div style="font-size:12px; color:#5f6368;">No leave requests recorded.</div>';
+        return;
+      }
+      container.innerHTML = requests.map(r => `
+        <div class="ticket-item" style="border-left: 3px solid var(--primary);">
+          <div class="ticket-header">
+            <span class="ticket-id">Req #${r.request_id || '-'}</span>
+            <span class="ticket-state ${r.leave_type || 'Vacation'}">${r.leave_type || 'Vacation'} (${r.days || 1}d)</span>
+          </div>
+          <div style="font-size:11px; color:var(--text-secondary); margin-top:2px;">
+            📅 ${r.start_date || '-'} → ${r.end_date || '-'}
+          </div>
+        </div>
+      `).join('');
     }
 
     function updateTicketsUI(tickets) {
@@ -604,6 +637,7 @@
         document.getElementById('empMgr').innerText = data.profile.manager || '-';
       }
       if (data.balances) updateBalancesUI(data.balances);
+      if (data.leave_requests) updateLeaveRequestsUI(data.leave_requests);
       if (data.tickets) updateTicketsUI(data.tickets);
 
       appendMessage('agent', `Switched active session to **${data.profile ? data.profile.name : newUserId}** (${newUserId}). All WorkWeek queries and ITSM tickets are now scoped to this tenant identity.`);
@@ -668,6 +702,7 @@
         appendMessage('agent', data.response || 'No response generated.');
 
         if (data.balances) updateBalancesUI(data.balances);
+        if (data.leave_requests) updateLeaveRequestsUI(data.leave_requests);
         if (data.tickets) updateTicketsUI(data.tickets);
       } catch (err) {
         const ti = document.getElementById('typingIndicator');
