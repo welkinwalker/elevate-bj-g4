@@ -20,6 +20,25 @@ class ServiceImmediatelyStateStore:
     def __init__(self):
         self.current_caller_id = config.DEFAULT_EMPLOYEE_ID
         self.tickets: dict[str, dict[str, Any]] = {
+            "INC0000944": {
+                "ticket_id": "INC0000944",
+                "requested_by": "EMP-247",
+                "category": "Inquiry / Help",
+                "short_description": "Onboarding setup and badges configuration",
+                "priority": "3 - Moderate",
+                "state": "New",
+                "assignment_group": "Service Desk",
+                "created_at": "2026-08-05T07:56:36Z",
+                "updated_at": "2026-08-05T07:56:36Z",
+                "comments": [
+                    {
+                        "author": "EMP-247",
+                        "comment": "Onboarding badge and workstation access setup requested.",
+                        "timestamp": "2026-08-05T07:56:36Z",
+                    }
+                ],
+                "resolution_notes": "",
+            },
             "INC123456": {
                 "ticket_id": "INC123456",
                 "requested_by": "EMP-1002",

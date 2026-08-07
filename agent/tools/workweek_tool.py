@@ -21,6 +21,44 @@ class WorkWeekStateStore:
     def __init__(self):
         self.current_caller_id = config.DEFAULT_EMPLOYEE_ID
         self.employees = {
+            "EMP-247": {
+                "employee_id": "EMP-247",
+                "name": "Levichen Employee",
+                "email": "levichen@company.internal",
+                "department": "Cloud Solutions Engineering",
+                "role": "Senior Customer Solutions Engineer",
+                "work_location": "Singapore Office (80 Pasir Panjang Rd)",
+                "manager": "Director of Solutions Architecture",
+                "hire_date": "2022-01-15",
+                "address": "Singapore Office, 80 Pasir Panjang Rd, Singapore",
+                "phone": "+65-6521-0000",
+                "leave_balances": {
+                    "vacation": {
+                        "category": "Vacation",
+                        "accrued_days": 20.0,
+                        "used_days": 5.0,
+                        "remaining_days": 15.0,
+                        "remaining_hours": 120.0,
+                    },
+                    "sick": {
+                        "category": "Sick",
+                        "accrued_days": 10.0,
+                        "used_days": 0.0,
+                        "remaining_days": 10.0,
+                        "remaining_hours": 80.0,
+                    },
+                },
+                "leave_requests": [
+                    {
+                        "request_id": 869,
+                        "start_date": "2026-06-01",
+                        "end_date": "2026-06-05",
+                        "leave_type": "Vacation",
+                        "days": 5.0,
+                        "status": "Approved",
+                    }
+                ],
+            },
             "EMP-1002": {
                 "employee_id": "EMP-1002",
                 "name": "Alex Taylor",
