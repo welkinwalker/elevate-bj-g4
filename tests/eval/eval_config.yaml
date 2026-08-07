@@ -1,6 +1,73 @@
 # Evaluation Configuration for Project Elevate (HR & IT Agentic Solution)
 # Schema: Google agents-cli Evaluation Configuration (YAML)
 
+# =============================================================================
+# 1. Contextual Scope Assumptions & Enterprise Bounds
+# =============================================================================
+scope_assumptions:
+  enterprise_profile: "Altostrat Singapore Pte. Ltd."
+  industry_vertical: "Enterprise Cloud Computing & Solutions Engineering"
+  primary_locale: "Singapore (GMT+8) English Baseline"
+  statutory_framework: "Singapore Ministry of Manpower (MOM) Employment Act Baseline"
+  workforce_bounds:
+    - "Full-Time Regular Employees (FTE)"
+    - "Third-Party Vendors & Contractors (TVC / Fixed-Term)"
+    - "People Managers (Supervisory Roles & Approval Authority)"
+    - "Individual Contributors (Standard Employees)"
+  system_constraints:
+    hcm_system: "WorkWeek FastMCP Microservice (Leave accruals, balances, personal profiles)"
+    itsm_system: "ServiceImmediately FastMCP Microservice (ITIL incidents, status lifecycles, comments)"
+    policy_rag: "Vertex AI Search with Grounded Markdown Deep-Link Citations"
+    security_gateway: "Google Cloud Model Armor (modelarmor.googleapis.com global floorSetting)"
+
+# =============================================================================
+# 2. End-to-End Synthetic Dataset Preparation Budget
+# =============================================================================
+dataset_preparation_budget:
+  generation_formula: "[Number of Golden Cases] * [Variants per Case] * [Tokens/Query]"
+  golden_cases_count: 25
+  synthetic_variants_per_case: 4
+  avg_tokens_per_variant: 500
+  total_generation_tokens: 50000
+  generation_token_cost_usd: 0.015
+  human_curation_hours: 4.5
+  human_curation_hourly_rate_usd: 85.00
+  total_preparation_cost_usd: 382.515
+  sampling_strategy: "stratified_random_sample"
+  sampling_strata:
+    - "Policy Grounded Q&A (28%)"
+    - "HCM Self-Service Transactions (24%)"
+    - "ITSM Lifecycle Operations (20%)"
+    - "Model Armor & Adversarial Defense (20%)"
+    - "Cross-Domain Multi-Turn Workflows (8%)"
+
+# =============================================================================
+# 3. Automated Dataset Quality Filters & Deduplication
+# =============================================================================
+dataset_quality_filters:
+  semantic_similarity_threshold: 0.92
+  deduplication_method: "token_cosine_similarity"
+  schema_validation: "strict_json_schema"
+  min_prompt_length_chars: 10
+  max_prompt_length_chars: 2000
+  reject_on_pii_leakage: true
+
+# =============================================================================
+# 4. Multi-LLM-as-a-Judge Calibration & Consensus Voting
+# =============================================================================
+judge_orchestration:
+  primary_judge: "gemini-2.5-pro"
+  secondary_judge: "gemini-2.5-flash"
+  voting_mechanism: "majority_consensus"
+  mandatory_cot: true
+  agreement_metrics:
+    target_cohens_kappa: 0.75
+    allow_false_positives: false
+    re_evaluation_on_disagreement: true
+
+# =============================================================================
+# 5. Metrics Suite Execution Specification
+# =============================================================================
 metrics_to_run:
   # Managed Built-in Agent Platform Metrics
   - multi_turn_task_success
@@ -34,9 +101,10 @@ custom_metrics:
       Agent Response: {response}
       Conversation Context / Traces: {agent_data}
 
-      Output JSON with score (1 to 5) and concise explanation:
+      Output JSON with score (1 to 5) and mandatory Chain-of-Thought explanation:
       {
         "score": <1|2|3|4|5>,
+        "chain_of_thought": "<step-by-step reasoning>",
         "explanation": "<detailed rationale>"
       }
 
@@ -62,6 +130,7 @@ custom_metrics:
       Return JSON:
       {
         "score": <1|2|3|4|5>,
+        "chain_of_thought": "<step-by-step verification logic>",
         "explanation": "<step-by-step verification rationale>"
       }
 

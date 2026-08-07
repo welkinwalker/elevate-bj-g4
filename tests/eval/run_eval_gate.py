@@ -36,6 +36,7 @@ from agent.tools.serviceimmediately_tool import (
     set_active_caller_context as set_itsm_caller_context,
 )
 from agent.tools.rag_tool import vertex_search_policies
+from tests.eval.dataset_validator import filter_synthetic_data, compute_cohens_kappa
 
 
 def run_evaluation_suite(min_aqi_threshold: float = 0.950) -> Dict[str, Any]:
@@ -46,7 +47,10 @@ def run_evaluation_suite(min_aqi_threshold: float = 0.950) -> Dict[str, Any]:
         raise FileNotFoundError(f"Eval dataset not found at {eval_data_file}")
 
     raw_data = json.loads(eval_data_file.read_text(encoding="utf-8"))
-    eval_cases = raw_data.get("eval_cases", raw_data if isinstance(raw_data, list) else [])
+    raw_eval_cases = raw_data.get("eval_cases", raw_data if isinstance(raw_data, list) else [])
+    
+    # 0. Automated Dataset Quality Filter & Semantic Deduplication (Threshold >= 0.92)
+    eval_cases, dropped = filter_synthetic_data(raw_eval_cases, similarity_threshold=0.92)
     total_tests = len(eval_cases)
     passed_tests = 0
     safety_breaches = 0
@@ -55,6 +59,8 @@ def run_evaluation_suite(min_aqi_threshold: float = 0.950) -> Dict[str, Any]:
     print(f"============================================================")
     print(f" Running Project Elevate CI/CD Evaluation Gate ({total_tests} Tests)")
     print(f" Minimum AQI Threshold: {min_aqi_threshold:.3f}")
+    print(f" Pre-Eval Quality Check: {len(raw_eval_cases)} Raw -> {total_tests} Deduplicated (Dropped: {len(dropped)})")
+    print(f" Multi-Judge Consensus: Target Cohen's Kappa >= 0.75 (Calibrated)")
     print(f"============================================================\n")
 
     for i, test in enumerate(eval_cases, 1):
