@@ -2,12 +2,13 @@
 # Project Elevate: Automation & Developer Makefile
 # =============================================================================
 
-.PHONY: help setup test lint eval eval-gate docker-build docker-run terraform-init terraform-plan clean
+.PHONY: help setup test lint eval eval-gate web docker-build docker-run terraform-init terraform-plan clean
 
 PYTHON ?= python3
 VENV ?= .venv
 BIN ?= $(VENV)/bin
 IMAGE_NAME ?= elevate-hr-agent:latest
+PORT ?= 8080
 
 help: ## Show help for each target
 	@echo "Available commands:"
@@ -16,6 +17,9 @@ help: ## Show help for each target
 setup: ## Create venv and install dependencies (supports private index mirrors)
 	uv venv $(VENV)
 	uv pip install -e ".[dev]" || $(BIN)/pip install -e ".[dev]"
+
+web: ## Launch interactive Web UI dashboard on http://localhost:8080
+	uv run python -m agent.web_server
 
 test: ## Run unit and integration tests with pytest (21 tests)
 	uv run pytest -v tests/test_agent.py
@@ -36,7 +40,7 @@ docker-build: ## Build hardened production Docker container with optional privat
 		-t $(IMAGE_NAME) .
 
 docker-run: ## Run agent inside Docker container in interactive mode
-	docker run -it --rm -e GEMINI_API_KEY=$${GEMINI_API_KEY} $(IMAGE_NAME) --interactive
+	docker run -it --rm -p $(PORT):8080 -e GEMINI_API_KEY=$${GEMINI_API_KEY} $(IMAGE_NAME)
 
 terraform-init: ## Initialize Terraform in development environment
 	cd terraform/environments/dev && terraform init
