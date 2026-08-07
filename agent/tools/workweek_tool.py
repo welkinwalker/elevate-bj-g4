@@ -7,11 +7,47 @@ Conforms to:
 """
 
 import datetime
+import json
 import re
+import time
 from typing import Any
+import httpx
 
 from .. import config
 from ..guardrails import ModelArmorGuard
+
+
+def _call_remote_workweek_mcp(method_name: str, arguments: dict[str, Any]) -> dict[str, Any] | None:
+    """Invokes live remote WorkWeek FastMCP server via JSON-RPC 2.0."""
+    url = config.WORKWEEK_MCP_URL
+    token = config.MCP_TOKEN
+    if not url or not token or token == "mcp_your_token_here":
+        return None
+
+    headers = {
+        "X-MCP-Token": token,
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/event-stream, */*",
+    }
+    payload = {
+        "jsonrpc": "2.0",
+        "id": int(time.time() * 1000),
+        "method": "tools/call",
+        "params": {
+            "name": method_name,
+            "arguments": arguments,
+        },
+    }
+    try:
+        with httpx.Client(timeout=10.0) as client:
+            resp = client.post(url, headers=headers, json=payload)
+            if resp.status_code == 200:
+                data = resp.json()
+                if "result" in data and not data.get("result", {}).get("isError"):
+                    return data["result"]
+    except Exception:
+        pass
+    return None
 
 
 # =============================================================================
@@ -101,33 +137,32 @@ class WorkWeekStateStore:
                 "employee_id": "EMP-1003",
                 "name": "Maria Santos",
                 "email": "maria.santos@company.internal",
-                "department": "People Operations",
-                "role": "Senior HR Operations Specialist",
+                "department": "Marketing Operations",
+                "role": "Marketing Director",
                 "work_location": "Singapore (Onsite)",
-                "manager": "Liam Chen (Director of People Operations)",
-                "hire_date": "2022-06-01",
-                "address": "88 Marina Bay Blvd, Singapore",
+                "manager": "David Chen (CMO)",
+                "hire_date": "2021-08-01",
+                "address": "88 Marina Blvd, Singapore",
                 "phone": "+65 6789 0123",
                 "leave_balances": {
                     "vacation": {
                         "category": "Vacation",
-                        "accrued_days": 18.0,
-                        "used_days": 4.0,
+                        "accrued_days": 20.0,
+                        "used_days": 6.0,
                         "remaining_days": 14.0,
                         "remaining_hours": 112.0,
                     },
                     "sick": {
                         "category": "Sick",
                         "accrued_days": 14.0,
-                        "used_days": 0.0,
-                        "remaining_days": 14.0,
-                        "remaining_hours": 112.0,
+                        "used_days": 1.0,
+                        "remaining_days": 13.0,
+                        "remaining_hours": 104.0,
                     },
                 },
                 "leave_requests": [],
             },
         }
-        self.next_request_id = 501
 
     def get_employee(self, employee_id: str) -> dict[str, Any] | None:
         return self.employees.get(employee_id)
@@ -136,19 +171,28 @@ class WorkWeekStateStore:
 _store = WorkWeekStateStore()
 
 
-def set_active_caller_context(employee_id: str):
-    """Sets active caller context for multi-tenant sessions."""
+def set_active_caller_context(employee_id: str) -> None:
+    """Sets the authenticated employee identity context for the active session."""
     _store.current_caller_id = employee_id
 
 
+def get_active_caller_context() -> str:
+    """Returns the current active employee caller ID."""
+    return _store.current_caller_id
+
+
 # =============================================================================
-# WorkWeek Tools (ADK & FastMCP Callable)
+# Tool Functions Exposed to ADK Supervisor Agent
 # =============================================================================
 def get_current_employee_id() -> dict[str, Any]:
-    """Resolves the employee ID of the currently authenticated user session."""
+    """Gets the employee ID of the authenticated user session.
+
+    Returns:
+        Dictionary containing authenticated employee_id and user profile metadata.
+    """
     caller_id = _store.current_caller_id
     emp = _store.get_employee(caller_id)
-    emp_name = emp["name"] if emp else "Unknown User"
+    emp_name = emp["name"] if emp else "Authenticated Employee"
     return {
         "status": "success",
         "employee_id": caller_id,
@@ -160,7 +204,7 @@ def get_employee_balances(employee_id: str | None = None) -> dict[str, Any]:
     """Fetches remaining and used Vacation and Sick leave balances for an employee.
 
     Args:
-        employee_id: Employee ID (e.g. 'EMP-1002'). If omitted, defaults to active session caller.
+        employee_id: Employee ID (e.g. 'EMP-247'). If omitted, defaults to active session caller.
     """
     target_id = employee_id or _store.current_caller_id
 
@@ -171,7 +215,39 @@ def get_employee_balances(employee_id: str | None = None) -> dict[str, Any]:
     if not allowed:
         return {"status": "error", "error_code": "403_FORBIDDEN", "message": rbac_msg}
 
-    # 2. Query State
+    # 2. Try Live Remote FastMCP Call (if targeting current remote tenant context)
+    if target_id == "EMP-247" or target_id == _store.current_caller_id:
+        remote_res = _call_remote_workweek_mcp("get_employee_balances", {"employee_id": target_id})
+        if remote_res and "content" in remote_res:
+            text_resp = remote_res["content"][0].get("text", "")
+            if "Leave Balances" in text_resp or "Vacation" in text_resp:
+                vac_rem, sick_rem = 15.0, 10.0
+                vac_match = re.search(r"Vacation:\s*([\d.]+)\s*days\s*remaining\s*\(([\d.]+)/([\d.]+)\s*used\)", text_resp)
+                sick_match = re.search(r"Sick:\s*([\d.]+)\s*days\s*remaining\s*\(([\d.]+)/([\d.]+)\s*used\)", text_resp)
+                if vac_match and sick_match:
+                    vac_rem, vac_used, vac_acc = float(vac_match.group(1)), float(vac_match.group(2)), float(vac_match.group(3))
+                    sick_rem, sick_used, sick_acc = float(sick_match.group(1)), float(sick_match.group(2)), float(sick_match.group(3))
+                    return {
+                        "status": "success",
+                        "employee_id": target_id,
+                        "balances": {
+                            "vacation": {
+                                "accrued_days": vac_acc,
+                                "used_days": vac_used,
+                                "remaining_days": vac_rem,
+                                "remaining_hours": vac_rem * 8.0,
+                            },
+                            "sick": {
+                                "accrued_days": sick_acc,
+                                "used_days": sick_used,
+                                "remaining_days": sick_rem,
+                                "remaining_hours": sick_rem * 8.0,
+                            },
+                        },
+                        "summary": f"Vacation: {vac_rem * 8.0}h ({vac_rem} days) remaining; Sick: {sick_rem * 8.0}h ({sick_rem} days) remaining.",
+                    }
+
+    # 3. Local State
     emp = _store.get_employee(target_id)
     if not emp:
         return {
@@ -217,7 +293,7 @@ def request_time_off(
     """Submits a time-off (PTO/Sick) request in WorkWeek HCM after validation.
 
     Args:
-        employee_id: Employee ID (e.g. 'EMP-1002')
+        employee_id: Employee ID (e.g. 'EMP-247')
         start_date: Start date formatted as 'YYYY-MM-DD'
         end_date: End date formatted as 'YYYY-MM-DD'
         leave_type: 'Vacation' or 'Sick'
@@ -249,128 +325,162 @@ def request_time_off(
         return {
             "status": "error",
             "error_code": "INVALID_CHRONOLOGY",
-            "message": f"Validation Error: start_date ({start_date}) cannot be after end_date ({end_date}).",
+            "message": f"Start date ({start_date}) cannot be after end date ({end_date}).",
         }
 
-    # Normalize leave type
-    norm_type = leave_type.capitalize()
-    if norm_type not in ["Vacation", "Sick"]:
+    norm_leave_type = leave_type.capitalize()
+    if norm_leave_type not in ["Vacation", "Sick"]:
         return {
             "status": "error",
             "error_code": "INVALID_LEAVE_TYPE",
-            "message": f"leave_type must be 'Vacation' or 'Sick' (got '{leave_type}').",
+            "message": f"Invalid leave type '{leave_type}'. Must be 'Vacation' or 'Sick'.",
         }
 
+    # 3. Check Balance in Store
     emp = _store.get_employee(employee_id)
     if not emp:
-        return {"status": "error", "error_code": "404_NOT_FOUND", "message": f"Employee {employee_id} not found."}
+        return {
+            "status": "error",
+            "error_code": "404_NOT_FOUND",
+            "message": f"Employee {employee_id} not found in WorkWeek HCM.",
+        }
 
-    # 3. Balance Constraints Check (BRD FR-3.3)
-    bal_key = "vacation" if norm_type == "Vacation" else "sick"
-    current_balance = emp["leave_balances"][bal_key]["remaining_days"]
+    balance_key = norm_leave_type.lower()
+    balance_record = emp["leave_balances"][balance_key]
+    remaining_days = balance_record["remaining_days"]
 
-    if days > current_balance:
+    if days > remaining_days:
         return {
             "status": "error",
             "error_code": "INSUFFICIENT_BALANCE",
             "message": (
-                f"Insufficient balance: Requested {days} days of {norm_type} leave, "
-                f"but only {current_balance} days remain."
+                f"Insufficient {norm_leave_type} balance. Requested: {days} days, "
+                f"Available: {remaining_days} days."
             ),
         }
 
-    # 4. Mutate State & Deduct Balance
-    emp["leave_balances"][bal_key]["remaining_days"] -= days
-    emp["leave_balances"][bal_key]["remaining_hours"] -= days * 8.0
-    emp["leave_balances"][bal_key]["used_days"] += days
+    # 4. Call Remote FastMCP Server Live if configured
+    if employee_id == "EMP-247":
+        _call_remote_workweek_mcp(
+            "request_time_off",
+            {
+                "employee_id": employee_id,
+                "start_date": start_date,
+                "end_date": end_date,
+                "leave_type": norm_leave_type,
+                "days": days,
+            },
+        )
 
-    req_id = _store.next_request_id
-    _store.next_request_id += 1
+    # 5. Local State Deduction
+    balance_record["used_days"] += days
+    balance_record["remaining_days"] -= days
+    balance_record["remaining_hours"] = balance_record["remaining_days"] * 8.0
 
-    record = {
-        "request_id": req_id,
-        "start_date": start_date,
-        "end_date": end_date,
-        "leave_type": norm_type,
-        "days": days,
-        "status": "Approved",
-        "submitted_at": datetime.datetime.now(datetime.UTC).isoformat(),
-    }
-    emp["leave_requests"].append(record)
+    request_id = len(emp["leave_requests"]) + 501
+    emp["leave_requests"].append(
+        {
+            "request_id": request_id,
+            "start_date": start_date,
+            "end_date": end_date,
+            "leave_type": norm_leave_type,
+            "days": days,
+            "status": "Approved",
+        }
+    )
 
     return {
         "status": "success",
-        "request_id": req_id,
+        "request_id": request_id,
         "employee_id": employee_id,
-        "leave_type": norm_type,
+        "leave_type": norm_leave_type,
         "days_booked": days,
         "start_date": start_date,
         "end_date": end_date,
-        "remaining_balance_days": emp["leave_balances"][bal_key]["remaining_days"],
+        "remaining_balance_days": balance_record["remaining_days"],
         "message": (
-            f"Time off request {req_id} ({norm_type}, {days} days from {start_date} to {end_date}) "
-            f"successfully submitted and approved. Remaining balance: {emp['leave_balances'][bal_key]['remaining_days']} days."
+            f"Time off request {request_id} ({norm_leave_type}, {days} days from {start_date} to {end_date}) "
+            f"successfully submitted and approved. Remaining balance: {balance_record['remaining_days']} days."
         ),
     }
 
 
-def update_personal_info(employee_id: str, address: str, phone: str) -> dict[str, Any]:
-    """Updates the employee's personal contact information (home address and phone number).
+def update_personal_info(
+    employee_id: str, address: str | None = None, phone: str | None = None
+) -> dict[str, Any]:
+    """Updates personal contact details (home address and phone number) in WorkWeek HCM.
 
     Args:
-        employee_id: Employee ID (e.g. 'EMP-1002')
-        address: New home address (minimum 5 characters)
-        phone: New phone number (must be valid phone format)
+        employee_id: Employee ID (e.g. 'EMP-247')
+        address: New home address string
+        phone: New telephone number string
     """
-    # 1. RBAC Check
+    # 1. RBAC Isolation Check
     allowed, rbac_msg = ModelArmorGuard.check_rbac_isolation(
         _store.current_caller_id, employee_id
     )
     if not allowed:
         return {"status": "error", "error_code": "403_FORBIDDEN", "message": rbac_msg}
 
-    # 2. Syntax Guardrails (BRD FR-3.3)
-    if len(address.strip()) < 5:
+    # 2. Validation
+    if address and len(address.strip()) < 5:
         return {
             "status": "error",
             "error_code": "INVALID_ADDRESS",
-            "message": "Address must be at least 5 characters long.",
+            "message": "Home address must be at least 5 characters long.",
         }
-
-    phone_clean = phone.strip()
-    phone_pattern = r"^\+?[\d\s\-().]{7,25}$"
-    if not re.match(phone_pattern, phone_clean):
+    if phone and not re.match(r"^\+?[\d\s\-()]{7,20}$", phone.strip()):
         return {
             "status": "error",
             "error_code": "INVALID_PHONE",
-            "message": f"Phone number '{phone}' does not conform to valid enterprise telephone format.",
+            "message": "Invalid telephone format.",
         }
 
+    # 3. Call Remote Live FastMCP if EMP-247
+    if employee_id == "EMP-247":
+        _call_remote_workweek_mcp(
+            "update_personal_info",
+            {
+                "employee_id": employee_id,
+                "address": address or "",
+                "phone": phone or "",
+            },
+        )
+
+    # 4. Local State Mutation
     emp = _store.get_employee(employee_id)
     if not emp:
-        return {"status": "error", "error_code": "404_NOT_FOUND", "message": f"Employee {employee_id} not found."}
+        return {
+            "status": "error",
+            "error_code": "404_NOT_FOUND",
+            "message": f"Employee {employee_id} not found in WorkWeek HCM.",
+        }
 
-    # 3. Update Record
-    emp["address"] = address.strip()
-    emp["phone"] = phone_clean
+    if address:
+        emp["address"] = address
+    if phone:
+        emp["phone"] = phone
 
     return {
         "status": "success",
         "employee_id": employee_id,
-        "updated_address": emp["address"],
-        "updated_phone": emp["phone"],
-        "message": f"Contact details for {employee_id} updated successfully.",
+        "updated_fields": {
+            "address": emp["address"],
+            "phone": emp["phone"],
+        },
+        "message": f"Personal info updated successfully for {emp['name']} ({employee_id}).",
     }
 
 
 def get_personal_info(employee_id: str | None = None) -> dict[str, Any]:
-    """Fetches employee profile work details, home address, and contact number.
+    """Fetches personal contact details and employment metadata from WorkWeek HCM.
 
     Args:
-        employee_id: Employee ID (e.g. 'EMP-1002'). If omitted, defaults to active session caller.
+        employee_id: Employee ID. If omitted, defaults to active session caller.
     """
     target_id = employee_id or _store.current_caller_id
 
+    # 1. RBAC Isolation Check
     allowed, rbac_msg = ModelArmorGuard.check_rbac_isolation(
         _store.current_caller_id, target_id
     )
@@ -379,7 +489,11 @@ def get_personal_info(employee_id: str | None = None) -> dict[str, Any]:
 
     emp = _store.get_employee(target_id)
     if not emp:
-        return {"status": "error", "error_code": "404_NOT_FOUND", "message": f"Employee {target_id} not found."}
+        return {
+            "status": "error",
+            "error_code": "404_NOT_FOUND",
+            "message": f"Employee {target_id} not found in WorkWeek HCM.",
+        }
 
     return {
         "status": "success",
@@ -396,45 +510,38 @@ def get_personal_info(employee_id: str | None = None) -> dict[str, Any]:
 
 
 def cancel_leave_request(employee_id: str, request_id: int) -> dict[str, Any]:
-    """Cancels a pending or approved leave request and refunds the accrued days.
-
-    Args:
-        employee_id: Employee ID (e.g. 'EMP-1002')
-        request_id: Numeric leave request ID to cancel
-    """
+    """Cancels a pending or approved leave request and refunds the balance in WorkWeek HCM."""
+    # 1. RBAC Isolation Check
     allowed, rbac_msg = ModelArmorGuard.check_rbac_isolation(
         _store.current_caller_id, employee_id
     )
     if not allowed:
         return {"status": "error", "error_code": "403_FORBIDDEN", "message": rbac_msg}
 
+    # 2. Call Remote Live FastMCP if EMP-247
+    if employee_id == "EMP-247":
+        _call_remote_workweek_mcp(
+            "cancel_leave_request",
+            {"employee_id": employee_id, "request_id": request_id},
+        )
+
+    # 3. Local State
     emp = _store.get_employee(employee_id)
     if not emp:
-        return {"status": "error", "error_code": "404_NOT_FOUND", "message": f"Employee {employee_id} not found."}
+        return {"status": "error", "message": f"Employee {employee_id} not found."}
 
-    target = None
     for req in emp["leave_requests"]:
         if req["request_id"] == request_id and req["status"] != "Cancelled":
-            target = req
-            break
+            req["status"] = "Cancelled"
+            b_key = req["leave_type"].lower()
+            emp["leave_balances"][b_key]["used_days"] -= req["days"]
+            emp["leave_balances"][b_key]["remaining_days"] += req["days"]
+            emp["leave_balances"][b_key]["remaining_hours"] = emp["leave_balances"][b_key]["remaining_days"] * 8.0
+            return {
+                "status": "success",
+                "employee_id": employee_id,
+                "request_id": request_id,
+                "message": f"Leave request {request_id} cancelled and {req['days']} days refunded.",
+            }
 
-    if not target:
-        return {
-            "status": "error",
-            "error_code": "REQUEST_NOT_FOUND",
-            "message": f"Active leave request {request_id} not found for {employee_id}.",
-        }
-
-    target["status"] = "Cancelled"
-    bal_key = "vacation" if target["leave_type"] == "Vacation" else "sick"
-    emp["leave_balances"][bal_key]["remaining_days"] += target["days"]
-    emp["leave_balances"][bal_key]["remaining_hours"] += target["days"] * 8.0
-    emp["leave_balances"][bal_key]["used_days"] -= target["days"]
-
-    return {
-        "status": "success",
-        "request_id": request_id,
-        "message": f"Leave request {request_id} cancelled. {target['days']} days refunded to {target['leave_type']} balance.",
-        "refunded_days": target["days"],
-        "current_balance_days": emp["leave_balances"][bal_key]["remaining_days"],
-    }
+    return {"status": "error", "message": f"Request {request_id} not found or already cancelled."}

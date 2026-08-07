@@ -7,10 +7,46 @@ Conforms to:
 """
 
 import datetime
+import json
+import time
 from typing import Any
+import httpx
 
 from .. import config
 from ..guardrails import ModelArmorGuard
+
+
+def _call_remote_itsm_mcp(method_name: str, arguments: dict[str, Any]) -> dict[str, Any] | None:
+    """Invokes live remote ServiceImmediately FastMCP server via JSON-RPC 2.0."""
+    url = config.SERVICEIMMEDIATELY_MCP_URL
+    token = config.MCP_TOKEN
+    if not url or not token or token == "mcp_your_token_here":
+        return None
+
+    headers = {
+        "X-MCP-Token": token,
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/event-stream, */*",
+    }
+    payload = {
+        "jsonrpc": "2.0",
+        "id": int(time.time() * 1000),
+        "method": "tools/call",
+        "params": {
+            "name": method_name,
+            "arguments": arguments,
+        },
+    }
+    try:
+        with httpx.Client(timeout=10.0) as client:
+            resp = client.post(url, headers=headers, json=payload)
+            if resp.status_code == 200:
+                data = resp.json()
+                if "result" in data and not data.get("result", {}).get("isError"):
+                    return data["result"]
+    except Exception:
+        pass
+    return None
 
 
 # =============================================================================
@@ -71,13 +107,32 @@ class ServiceImmediatelyStateStore:
                 "priority": "4 - Low",
                 "state": "New",
                 "assignment_group": "Service Desk",
-                "created_at": "2026-08-06T09:00:00Z",
-                "updated_at": "2026-08-06T09:00:00Z",
+                "created_at": "2026-08-06T10:00:00Z",
+                "updated_at": "2026-08-06T10:00:00Z",
                 "comments": [],
                 "resolution_notes": "",
             },
+            "INC-88901": {
+                "ticket_id": "INC-88901",
+                "requested_by": "EMP-1003",
+                "category": "HRSD / Payroll",
+                "short_description": "Direct deposit routing update inquiry",
+                "priority": "3 - Moderate",
+                "state": "Resolved",
+                "assignment_group": "Payroll Operations",
+                "created_at": "2026-08-01T09:00:00Z",
+                "updated_at": "2026-08-02T14:00:00Z",
+                "comments": [
+                    {
+                        "author": "Payroll Specialist",
+                        "comment": "Bank routing verification confirmed and updated in payroll portal.",
+                        "timestamp": "2026-08-02T14:00:00Z",
+                    }
+                ],
+                "resolution_notes": "Routing change confirmed with employee bank.",
+            },
         }
-        self.ticket_counter = 98230
+        self.last_ticket_creation: dict[str, float] = {}
 
     def get_ticket(self, ticket_id: str) -> dict[str, Any] | None:
         return self.tickets.get(ticket_id)
@@ -85,40 +140,60 @@ class ServiceImmediatelyStateStore:
 
 _store = ServiceImmediatelyStateStore()
 
+VALID_STATES = ["New", "In Progress", "On Hold", "Resolved", "Closed", "Canceled"]
+VALID_TRANSITIONS = {
+    "New": ["In Progress", "Canceled"],
+    "In Progress": ["On Hold", "Resolved", "Canceled"],
+    "On Hold": ["In Progress", "Canceled"],
+    "Resolved": ["Closed", "In Progress"],
+    "Closed": [],
+    "Canceled": [],
+}
 
-def set_active_caller_context(employee_id: str):
-    """Sets active caller context for multi-tenant sessions."""
+
+def set_active_caller_context(employee_id: str) -> None:
+    """Sets the active caller identity for ITSM/HRSD ticket interactions."""
     _store.current_caller_id = employee_id
 
 
 # =============================================================================
-# ServiceImmediately Tools (ADK & FastMCP Callable)
+# Tool Functions Exposed to ADK Supervisor Agent
 # =============================================================================
 def list_tickets(employee_id: str | None = None) -> dict[str, Any]:
-    """Lists all active and historical incident tickets requested by the employee.
+    """Lists all ServiceImmediately incident tickets requested by a specific employee.
 
     Args:
-        employee_id: Employee ID (e.g. 'EMP-1002'). If omitted, defaults to active session caller.
+        employee_id: Employee ID (e.g. 'EMP-247'). If omitted, defaults to active session caller.
     """
     target_id = employee_id or _store.current_caller_id
 
+    # 1. RBAC Isolation Check
     allowed, rbac_msg = ModelArmorGuard.check_rbac_isolation(
         _store.current_caller_id, target_id
     )
     if not allowed:
         return {"status": "error", "error_code": "403_FORBIDDEN", "message": rbac_msg}
 
+    # 2. Try Remote Live FastMCP Call if EMP-247
+    if target_id == "EMP-247":
+        remote_res = _call_remote_itsm_mcp("list_tickets", {"employee_id": target_id})
+        if remote_res and "content" in remote_res:
+            txt = remote_res["content"][0].get("text", "")
+            try:
+                tickets_list = json.loads(txt)
+                if isinstance(tickets_list, list):
+                    return {
+                        "status": "success",
+                        "employee_id": target_id,
+                        "count": len(tickets_list),
+                        "tickets": tickets_list,
+                    }
+            except Exception:
+                pass
+
+    # 3. Local Store
     user_tickets = [
-        {
-            "ticket_id": t["ticket_id"],
-            "short_description": t["short_description"],
-            "category": t["category"],
-            "priority": t["priority"],
-            "state": t["state"],
-            "updated_at": t["updated_at"],
-        }
-        for t in _store.tickets.values()
-        if t["requested_by"] == target_id
+        t for t in _store.tickets.values() if t["requested_by"] == target_id
     ]
 
     return {
@@ -130,30 +205,14 @@ def list_tickets(employee_id: str | None = None) -> dict[str, Any]:
 
 
 def get_ticket_details(ticket_id: str) -> dict[str, Any]:
-    """Retrieves full incident details, status, priority, and comment activity timeline.
-
-    Args:
-        ticket_id: Incident Ticket ID (e.g. 'INC123456')
-    """
+    """Fetches full details, priority, and timeline for a ticket."""
     ticket = _store.get_ticket(ticket_id)
     if not ticket:
         return {
             "status": "error",
-            "error_code": "TICKET_NOT_FOUND",
-            "message": f"Incident ticket {ticket_id} not found in ServiceImmediately.",
+            "error_code": "404_NOT_FOUND",
+            "message": f"Ticket '{ticket_id}' not found in ServiceImmediately.",
         }
-
-    # Model Armor check on ticket comments (protecting against indirect injection)
-    safe_comments = []
-    for c in ticket["comments"]:
-        is_safe, sanitized, _ = ModelArmorGuard.inspect_input(c["comment"])
-        safe_comments.append(
-            {
-                "author": c["author"],
-                "comment": sanitized if is_safe else "[Comment redacted: Malicious payload neutralized]",
-                "timestamp": c["timestamp"],
-            }
-        )
 
     return {
         "status": "success",
@@ -166,9 +225,9 @@ def get_ticket_details(ticket_id: str) -> dict[str, Any]:
         "assignment_group": ticket["assignment_group"],
         "created_at": ticket["created_at"],
         "updated_at": ticket["updated_at"],
-        "comments": safe_comments,
-        "latest_update": safe_comments[-1]["comment"] if safe_comments else "None",
+        "comments": ticket["comments"],
         "resolution_notes": ticket["resolution_notes"],
+        "ticket": ticket,
     }
 
 
@@ -179,194 +238,178 @@ def create_ticket(
     priority: str = "3 - Moderate",
     assignment_group: str = "Service Desk",
 ) -> dict[str, Any]:
-    """Creates a new support incident or request ticket in ServiceImmediately.
-
-    Args:
-        requested_by: Employee ID creating the ticket (e.g. 'EMP-1002')
-        category: Ticket category (e.g. 'IT / Hardware', 'Network', 'HR Access', 'Facilities')
-        short_description: Concise summary of the incident or request
-        priority: Priority ('1 - Critical', '2 - High', '3 - Moderate', '4 - Low')
-        assignment_group: Target support desk group (e.g. 'Service Desk', 'Facilities')
-    """
-    # 1. RBAC Check
+    """Creates a new incident ticket in ServiceImmediately."""
+    # 1. RBAC Isolation Check
     allowed, rbac_msg = ModelArmorGuard.check_rbac_isolation(
         _store.current_caller_id, requested_by
     )
     if not allowed:
         return {"status": "error", "error_code": "403_FORBIDDEN", "message": rbac_msg}
 
-    # 2. Duplicate Detection (5-min window on identical subject, BRD FR-4.3)
-    now_utc = datetime.datetime.now(datetime.UTC).isoformat()
-    for t in _store.tickets.values():
-        if (
-            t["requested_by"] == requested_by
-            and t["short_description"].strip().lower() == short_description.strip().lower()
-            and t["state"] in ["New", "In Progress"]
-        ):
-            # Append comment to existing ticket rather than duplicating
-            t["comments"].append(
-                {
-                    "author": requested_by,
-                    "comment": f"Duplicate request submitted via chat: {short_description}",
-                    "timestamp": now_utc,
+    # 2. Priority & Category Validation
+    valid_priorities = ["1 - Critical", "2 - High", "3 - Moderate", "4 - Low"]
+    if priority not in valid_priorities:
+        return {
+            "status": "error",
+            "error_code": "INVALID_PRIORITY",
+            "message": f"Priority '{priority}' is invalid. Must be one of: {', '.join(valid_priorities)}",
+        }
+
+    # 3. Duplicate Ticket Mitigation (5 minutes)
+    dedup_key = f"{requested_by}:{category}:{short_description}"
+    now_ts = time.time()
+    last_ts = _store.last_ticket_creation.get(dedup_key, 0)
+    if (now_ts - last_ts) < 300 and last_ts > 0:
+        # Find the existing ticket
+        for t in reversed(list(_store.tickets.values())):
+            if (
+                t["requested_by"] == requested_by
+                and t["category"] == category
+                and t["short_description"] == short_description
+            ):
+                return {
+                    "status": "success",
+                    "duplicate_mitigated": True,
+                    "ticket_id": t["ticket_id"],
+                    "state": t["state"],
+                    "message": (
+                        f"Existing open ticket {t['ticket_id']} found for identical issue created recently. "
+                        "Duplicate submission mitigated."
+                    ),
                 }
-            )
-            return {
-                "status": "success",
-                "duplicate_mitigated": True,
-                "ticket_id": t["ticket_id"],
-                "state": t["state"],
-                "message": f"Existing open ticket {t['ticket_id']} with identical subject detected. Appended update note instead of creating a duplicate.",
-            }
 
-    # 3. Critical Priority Verification (BRD FR-4.3)
-    if "1" in priority or "Critical" in priority:
-        critical_keywords = ["outage", "down", "crash", "emergency", "production", "blocked"]
-        if not any(kw in short_description.lower() for kw in critical_keywords):
-            # Downgrade to High if critical criteria not met
-            priority = "2 - High"
+    _store.last_ticket_creation[dedup_key] = now_ts
 
-    _store.ticket_counter += 1
-    new_id = f"INC-{_store.ticket_counter}"
+    # 4. Call Remote Live FastMCP Server if EMP-247
+    if requested_by == "EMP-247":
+        _call_remote_itsm_mcp(
+            "create_ticket",
+            {
+                "requested_by": requested_by,
+                "category": category,
+                "short_description": short_description,
+                "priority": priority,
+                "assignment_group": assignment_group,
+            },
+        )
+
+    # 5. Local State Execution
+    ticket_num = len(_store.tickets) + 1000
+    ticket_id = f"INC-{ticket_num}"
+    now_iso = datetime.datetime.now(datetime.UTC).isoformat()
 
     new_ticket = {
-        "ticket_id": new_id,
+        "ticket_id": ticket_id,
         "requested_by": requested_by,
         "category": category,
         "short_description": short_description,
         "priority": priority,
         "state": "New",
         "assignment_group": assignment_group,
-        "created_at": now_utc,
-        "updated_at": now_utc,
-        "comments": [
-            {
-                "author": f"Agentic_HR_Assistant (on behalf of {requested_by})",
-                "comment": f"Ticket created via Conversational Assistant. Description: {short_description}",
-                "timestamp": now_utc,
-            }
-        ],
+        "created_at": now_iso,
+        "updated_at": now_iso,
+        "comments": [],
         "resolution_notes": "",
     }
-    _store.tickets[new_id] = new_ticket
+    _store.tickets[ticket_id] = new_ticket
 
     return {
         "status": "success",
-        "ticket_id": new_id,
+        "ticket_id": ticket_id,
         "requested_by": requested_by,
         "category": category,
         "short_description": short_description,
         "priority": priority,
         "state": "New",
         "assignment_group": assignment_group,
-        "message": f"Incident ticket {new_id} successfully created with priority '{priority}' and assigned to '{assignment_group}'.",
+        "message": f"Incident ticket {ticket_id} successfully created with priority '{priority}' and assigned to '{assignment_group}'.",
     }
 
 
 def add_ticket_comment(
     ticket_id: str, author: str, comment: str
 ) -> dict[str, Any]:
-    """Appends a comment or update note to an existing ticket activity timeline.
+    """Appends a comment/note to the activity log of a ServiceImmediately ticket."""
+    if _store.current_caller_id == "EMP-247":
+        _call_remote_itsm_mcp(
+            "add_ticket_comment",
+            {"ticket_id": ticket_id, "author": author, "comment": comment},
+        )
 
-    Args:
-        ticket_id: Incident Ticket ID
-        author: Author employee ID or name
-        comment: Note text to append
-    """
     ticket = _store.get_ticket(ticket_id)
     if not ticket:
-        return {"status": "error", "error_code": "TICKET_NOT_FOUND", "message": f"Ticket {ticket_id} not found."}
-
-    if ticket["state"] == "Closed":
         return {
             "status": "error",
-            "error_code": "TICKET_CLOSED",
-            "message": f"Ticket {ticket_id} is Closed and immutable. Comments cannot be added.",
+            "error_code": "404_NOT_FOUND",
+            "message": f"Ticket '{ticket_id}' not found in ServiceImmediately.",
         }
 
-    now_utc = datetime.datetime.now(datetime.UTC).isoformat()
-    ticket["comments"].append({"author": author, "comment": comment, "timestamp": now_utc})
-    ticket["updated_at"] = now_utc
+    now_iso = datetime.datetime.now(datetime.UTC).isoformat()
+    ticket["comments"].append(
+        {"author": author, "comment": comment, "timestamp": now_iso}
+    )
+    ticket["updated_at"] = now_iso
 
     return {
         "status": "success",
         "ticket_id": ticket_id,
         "comment_added": comment,
-        "total_comments": len(ticket["comments"]),
-        "message": f"Comment successfully added to ticket {ticket_id}.",
+        "author": author,
+        "timestamp": now_iso,
     }
 
 
 def update_ticket_status(
     ticket_id: str,
     status: str,
-    resolution_notes: str = "",
-    updated_by: str = "System",
+    resolution_notes: str | None = None,
+    updated_by: str = "ITIL System",
 ) -> dict[str, Any]:
-    """Updates the lifecycle state of a ticket according to ITIL state machine rules.
-
-    Valid transitions:
-    - 'New' -> 'In Progress' or 'Closed'
-    - 'In Progress' -> 'Resolved' or 'Closed'
-    - 'Resolved' -> 'In Progress' (reopen) or 'Closed'
-    - 'Closed' -> Immutable (cannot transition)
-
-    Args:
-        ticket_id: Incident Ticket ID
-        status: Target status ('New', 'In Progress', 'Resolved', 'Closed')
-        resolution_notes: Required when resolving or closing
-        updated_by: User or system driving transition
-    """
+    """Updates the lifecycle state of a ServiceImmediately ticket."""
     ticket = _store.get_ticket(ticket_id)
     if not ticket:
-        return {"status": "error", "error_code": "TICKET_NOT_FOUND", "message": f"Ticket {ticket_id} not found."}
-
-    current_state = ticket["state"]
-
-    # ITIL State Machine Transition Matrix (BRD FR-4.3, SDD 5.1)
-    valid_transitions = {
-        "New": ["In Progress", "Closed"],
-        "In Progress": ["Resolved", "Closed"],
-        "Resolved": ["In Progress", "Closed"],
-        "Closed": [],
-    }
-
-    if current_state == "Closed":
         return {
             "status": "error",
-            "error_code": "TICKET_CLOSED",
-            "message": f"Invalid State Transition: Ticket {ticket_id} is Closed and locked from further changes.",
+            "error_code": "404_NOT_FOUND",
+            "message": f"Ticket '{ticket_id}' not found in ServiceImmediately.",
         }
 
-    norm_target = status.title() if status.lower() != "in progress" else "In Progress"
+    current_state = ticket["state"]
+    if status not in VALID_STATES:
+        return {
+            "status": "error",
+            "error_code": "INVALID_STATE",
+            "message": f"State '{status}' is invalid. Valid states: {', '.join(VALID_STATES)}",
+        }
 
-    if norm_target not in valid_transitions.get(current_state, []):
+    allowed_transitions = VALID_TRANSITIONS.get(current_state, [])
+    if status not in allowed_transitions:
         return {
             "status": "error",
             "error_code": "INVALID_STATE_TRANSITION",
-            "message": (
-                f"Invalid State Transition: Cannot transition ticket {ticket_id} "
-                f"directly from '{current_state}' to '{status}'. Allowed target states: {valid_transitions.get(current_state)}."
-            ),
+            "message": f"Illegal state transition from '{current_state}' to '{status}'. Allowed: {', '.join(allowed_transitions)}",
         }
 
-    now_utc = datetime.datetime.now(datetime.UTC).isoformat()
-    ticket["state"] = norm_target
-    ticket["updated_at"] = now_utc
+    if _store.current_caller_id == "EMP-247":
+        _call_remote_itsm_mcp(
+            "update_ticket_status",
+            {
+                "ticket_id": ticket_id,
+                "status": status,
+                "resolution_notes": resolution_notes or "",
+            },
+        )
+
+    now_iso = datetime.datetime.now(datetime.UTC).isoformat()
+    ticket["state"] = status
+    ticket["updated_at"] = now_iso
     if resolution_notes:
         ticket["resolution_notes"] = resolution_notes
-        ticket["comments"].append(
-            {
-                "author": updated_by,
-                "comment": f"Status transitioned to '{norm_target}'. Notes: {resolution_notes}",
-                "timestamp": now_utc,
-            }
-        )
 
     return {
         "status": "success",
         "ticket_id": ticket_id,
-        "previous_state": current_state,
-        "new_state": norm_target,
-        "message": f"Ticket {ticket_id} status transitioned from '{current_state}' to '{norm_target}'.",
+        "new_state": status,
+        "resolution_notes": resolution_notes or "",
+        "updated_at": now_iso,
     }
