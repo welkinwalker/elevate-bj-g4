@@ -19,50 +19,40 @@ except ImportError:
     from gTTS import gTTS
 
 
-# Structured Commentary Segments for the Elevate Demonstration Video
+# Perfectly Synchronized Commentary Segments for the 104-Second Gemini Enterprise Demo Video
 DEFAULT_COMMENTARY_SEGMENTS: List[Tuple[float, str]] = [
     (
         0.0,
-        "Welcome to the demonstration of Project Elevate, an enterprise HR and IT Virtual Assistant "
-        "built natively on the Google Cloud AI platform, Google Agent Development Kit, and Model Armor."
+        "Welcome to this demonstration of Project Elevate, integrated live into Gemini Enterprise as the Workplace Assistant. "
+        "Elevate seamlessly handles complex multi-system workflows and real-world edge cases."
     ),
     (
-        8.0,
-        "First, let's explore standard HR policy inquiries. When an employee inquires about bereavement leave "
-        "or remote work expense policies, Elevate uses Vertex AI Search to retrieve strictly grounded answers "
-        "complete with verified, clickable Markdown deep-link citations, ensuring zero hallucination."
+        14.0,
+        "In our first scenario, the user initiates a request. Notice how Elevate proactively checks active records and detects an existing open ticket, INC-0001577. "
+        "Instead of spamming the helpdesk with duplicate tickets, Elevate suggests appending a comment to the existing ticket."
     ),
     (
-        22.0,
-        "Next, Elevate connects to WorkWeek HCM via real-time FastMCP toolsets. "
-        "The agent queries live vacation and sick leave balances and seamlessly books time off requests "
-        "with instant confirmation."
+        36.0,
+        "Next, when the user requests a new monitor simply because they dislike the old working unit, "
+        "Elevate consults enterprise hardware policies. It politely explains that non-broken equipment swaps require manager review, "
+        "and automatically classifies the request as a low-priority unit swap pending user confirmation."
     ),
     (
-        35.0,
-        "Now, let's observe how Elevate smoothly handles complex edge cases and guardrails. "
-        "When an employee attempts to book leave with invalid inverted dates or insufficient balance, "
-        "Elevate's transactional validation interceptor rejects the invalid state before making backend mutations."
+        57.0,
+        "Now, let's observe how Elevate handles a complex emotional query with multiple overlapping intents and typos. "
+        "The user mentions feeling sad, needing vacation balances, flight information, and having a broken laptop with an upset manager."
     ),
     (
-        50.0,
-        "Next, we test security resilience against adversarial attacks. When faced with direct prompt injection "
-        "or jailbreak overrides, Google Cloud Model Armor immediately detects the threat and neutralizes the payload."
+        72.0,
+        "Elevate responds with empathy and systematically decomposes the query into three structured streams: "
+        "First, it queries live WorkWeek balances for Employee 202. "
+        "Second, it maintains strict domain boundaries, explaining that commercial flight booking is out of scope. "
+        "Third, it checks ServiceImmediately to verify no open laptop tickets exist."
     ),
     (
-        65.0,
-        "Furthermore, any sensitive personal data such as Social Security Numbers and phone numbers "
-        "is automatically redacted pre-LLM, preventing privacy leakage."
-    ),
-    (
-        80.0,
-        "Finally, Elevate handles multi-system cross-domain orchestration, chaining policy lookup, "
-        "WorkWeek profile updates, and ServiceImmediately IT incident management into a single conversational flow."
-    ),
-    (
-        95.0,
-        "With 100% CI/CD quality gate pass rate, zero safety breaches, and sub-second latency, "
-        "Project Elevate delivers production-grade enterprise agentic AI for Google Cloud customers."
+        92.0,
+        "Finally, when the user attempts a lateral privacy breach by asking for their manager's home address, "
+        "Elevate enforces strict zero-trust RBAC and privacy policies, immediately refusing to disclose another employee's private personal data."
     ),
 ]
 
