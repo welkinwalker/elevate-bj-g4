@@ -25,7 +25,11 @@ async def test_remote_mcp_endpoint(url: str, token: str, label: str):
     """Tests connectivity to remote FastMCP server."""
     print(f"\n--- [1] Probing Remote FastMCP Endpoint: {label} ---")
     print(f"URL: {url}")
-    headers = {"X-MCP-Token": token, "Content-Type": "application/json"}
+    headers = {
+        "X-MCP-Token": token,
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/event-stream, */*",
+    }
 
     # JSON-RPC tools/list payload
     payload = {
@@ -52,6 +56,35 @@ async def test_remote_mcp_endpoint(url: str, token: str, label: str):
     except Exception as e:
         print(f"⚠️ Remote network connection probe note: {e}")
         return False
+
+
+async def test_remote_tool_call(url: str, token: str, tool_name: str, arguments: dict):
+    """Executes a real tool call directly against the live remote SaaS FastMCP server."""
+    print(f"\n--- Calling Remote Live FastMCP Tool: {tool_name} ---")
+    headers = {
+        "X-MCP-Token": token,
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/event-stream, */*",
+    }
+    payload = {
+        "jsonrpc": "2.0",
+        "id": 201,
+        "method": "tools/call",
+        "params": {
+            "name": tool_name,
+            "arguments": arguments
+        }
+    }
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        resp = await client.post(url, headers=headers, json=payload)
+        print(f"Remote HTTP Status: {resp.status_code}")
+        if resp.status_code == 200:
+            result = resp.json()
+            print(f"✅ Remote FastMCP Result: {json.dumps(result.get('result', {}), indent=2)}")
+            return result
+        else:
+            print(f"Response: {resp.text}")
+            return None
 
 
 async def test_fastmcp_task_execution():
@@ -158,11 +191,18 @@ async def main():
     print(" Project Elevate: FastMCP Connection & Task Verification")
     print("============================================================")
 
-    # 1. Test Remote SaaS Endpoints
+    # 1. Test Remote SaaS Endpoints Connectivity
     await test_remote_mcp_endpoint(config.WORKWEEK_MCP_URL, config.MCP_TOKEN, "WorkWeek HCM")
     await test_remote_mcp_endpoint(config.SERVICEIMMEDIATELY_MCP_URL, config.MCP_TOKEN, "ServiceImmediately ITSM")
 
-    # 2. Test End-to-End Task Executions
+    # 2. Execute Real Live Remote Tool Calls against SaaS Cloud Endpoints
+    # The remote SaaS token is bound to employee EMP-247
+    await test_remote_tool_call(config.WORKWEEK_MCP_URL, config.MCP_TOKEN, "get_current_employee_id", {})
+    await test_remote_tool_call(config.WORKWEEK_MCP_URL, config.MCP_TOKEN, "get_employee_balances", {"employee_id": "EMP-247"})
+    await test_remote_tool_call(config.WORKWEEK_MCP_URL, config.MCP_TOKEN, "get_personal_info", {"employee_id": "EMP-247"})
+    await test_remote_tool_call(config.SERVICEIMMEDIATELY_MCP_URL, config.MCP_TOKEN, "list_tickets", {"employee_id": "EMP-247"})
+
+    # 3. Test End-to-End Task Executions & State Validations
     await test_fastmcp_task_execution()
 
     print("\n============================================================")
