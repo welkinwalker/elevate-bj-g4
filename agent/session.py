@@ -38,6 +38,8 @@ class ElevateSessionService(BaseSessionService):
         user_id: str,
         session_id: str | None = None,
         state: dict[str, Any] | None = None,
+        *args: Any,
+        **kwargs: Any,
     ) -> Session:
         """Creates a new session conforming to UserSessionSchema."""
         sid = session_id or str(uuid.uuid4())
@@ -71,7 +73,12 @@ class ElevateSessionService(BaseSessionService):
         return session
 
     async def get_session(
-        self, app_name: str, user_id: str, session_id: str
+        self,
+        app_name: str,
+        user_id: str,
+        session_id: str,
+        *args: Any,
+        **kwargs: Any,
     ) -> Session | None:
         """Retrieves an active session and updates its last_active_at timestamp."""
         session = self.active_sessions.get(session_id)
@@ -86,7 +93,13 @@ class ElevateSessionService(BaseSessionService):
                 )
         return session
 
-    async def list_sessions(self, app_name: str, user_id: str) -> list[Session]:
+    async def list_sessions(
+        self,
+        app_name: str,
+        user_id: str,
+        *args: Any,
+        **kwargs: Any,
+    ) -> list[Session]:
         """Lists all active and persisted sessions for a user."""
         sessions = [
             s for s in self.active_sessions.values()
@@ -94,7 +107,7 @@ class ElevateSessionService(BaseSessionService):
         ]
         return sessions
 
-    async def update_session(self, session: Session) -> None:
+    async def update_session(self, session: Session, *args: Any, **kwargs: Any) -> None:
         """Updates session state and persists to storage."""
         sid = session.id
         self.active_sessions[sid] = session
@@ -104,7 +117,14 @@ class ElevateSessionService(BaseSessionService):
             )
             self._persist_session(sid, session, self.session_metadata[sid])
 
-    async def delete_session(self, app_name: str, user_id: str, session_id: str) -> None:
+    async def delete_session(
+        self,
+        app_name: str,
+        user_id: str,
+        session_id: str,
+        *args: Any,
+        **kwargs: Any,
+    ) -> None:
         """Hard-purges a session (GDPR Art. 17 right to be forgotten)."""
         self.active_sessions.pop(session_id, None)
         self.session_metadata.pop(session_id, None)
